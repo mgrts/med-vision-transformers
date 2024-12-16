@@ -26,7 +26,7 @@ Vision transformers for medical data research
 │                         the creator's initials, and a short `-` delimited description, e.g.
 │                         `1.0-jqp-initial-data-exploration`.
 │
-├── pyproject.toml     <- Project configuration file with package metadata for 
+├── pyproject.toml     <- Project configuration file with package metadata for
 │                         src and configuration for tools like black
 │
 ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
@@ -49,9 +49,9 @@ Vision transformers for medical data research
     │
     ├── features.py             <- Code to create features for modeling
     │
-    ├── modeling                
-    │   ├── __init__.py 
-    │   ├── predict.py          <- Code to run model inference with trained models          
+    ├── modeling
+    │   ├── __init__.py
+    │   ├── predict.py          <- Code to run model inference with trained models
     │   └── train.py            <- Code to train models
     │
     └── plots.py                <- Code to create visualizations
@@ -59,3 +59,10 @@ Vision transformers for medical data research
 
 --------
 
+## Set up project
+
+```bash
+pip install -r requirements.txt
+pre-commit install
+pre-commit run --all-files
+```

@@ -1,10 +1,19 @@
+-e .
 black
 flake8
 isort
 loguru
 mkdocs
+mlflow==2.17.0
+nibabel==5.3.2
+
+pillow==10.4.0
 pip
+
+pre-commit==3.8.0
 python-dotenv
+timm==1.0.8
+torch==2.4.1
 tqdm
+transformers==4.44.0
 typer
--e .
