@@ -13,21 +13,25 @@ from tqdm import tqdm
 from transformers import AutoModel
 
 from src.config import (ALTERNATIVE_OOD_CATEGORIES, BASE_MODEL_NAME,
-                        BATCH_SIZE, IMAGE_SIZE, LR, MASK_RATIO, MIM_WEIGHT,
-                        MMD_WEIGHT, MODELS_DIR, NUM_EPOCHS, OOD_CATEGORIES,
-                        PATIENCE, SEGMENTED_TEST_ANNOTATIONS_PATH,
+                        BATCH_SIZE, BRATS_TRAIN_DATA_DIR,
+                        BRATS_TRAIN_SURVIVAL_INFO_PATH, DROPOUT_RATE,
+                        IMAGE_SIZE, LR, MASK_RATIO, MIM_WEIGHT, MMD_WEIGHT,
+                        MODELS_DIR, NUM_EPOCHS, OOD_CATEGORIES, PATIENCE,
+                        SEGMENTED_TEST_ANNOTATIONS_PATH,
                         SEGMENTED_TEST_DATA_DIR,
                         SEGMENTED_TRAIN_ANNOTATIONS_PATH,
                         SEGMENTED_TRAIN_DATA_DIR,
                         SEGMENTED_VAL_ANNOTATIONS_PATH, SEGMENTED_VAL_DATA_DIR,
                         TRACKING_URI, ULTRASOUND_DATA_DIR,
                         ULTRASOUND_LABELS_MAPPING, WEIGHT_DECAY)
-from src.modeling.data_processing import (ImageDataset, ImageDatasetCOCO,
+from src.modeling.data_processing import (BRATSSliceDataset, ImageDataset,
+                                          ImageDatasetBrats, ImageDatasetCOCO,
                                           collate_fn, create_mask)
 from src.modeling.models import (MIMTransformer,
                                  MultiLabelClassificationTransformer,
                                  MultiTaskTransformer)
-from src.modeling.utils import (DEVICE, TRAIN_TRANSFORM, MultiTaskLoss,
+from src.modeling.utils import (DEVICE, EVAL_TRANSFORM, TRAIN_TRANSFORM,
+                                MultiTaskLoss,
                                 get_classification_loss_function,
                                 get_regression_loss_function)
 
@@ -42,11 +46,17 @@ def get_model(base_model_name, num_classes, training_task, pre_trained_model_pat
         base_model.load_state_dict(torch.load(pre_trained_model_path))
 
     if training_task == 'mim':
-        model = MIMTransformer(base_model, image_size=IMAGE_SIZE)
+        model = MIMTransformer(
+            base_model, dropout_rate=DROPOUT_RATE
+        )
     elif training_task == 'classification':
-        model = MultiLabelClassificationTransformer(base_model, num_classes=num_classes)
+        model = MultiLabelClassificationTransformer(
+            base_model, num_classes=num_classes, dropout_rate=DROPOUT_RATE
+        )
     elif training_task == 'multi-task':
-        model = MultiTaskTransformer(base_model, image_size=IMAGE_SIZE, num_classes=num_classes)
+        model = MultiTaskTransformer(
+            base_model, image_size=IMAGE_SIZE, num_classes=num_classes, dropout_rate=DROPOUT_RATE
+        )
     else:
         raise ValueError(f'Invalid training task: {training_task}')
 
@@ -78,8 +88,6 @@ def get_mmd_images(dataset, batch_size=BATCH_SIZE):
     Returns:
         torch.Tensor: A batch of images to be used for MMD calculation.
     """
-    dataset_type = type(dataset)
-
     if isinstance(dataset, ImageDatasetCOCO):
         # Filter for OOD categories (Alternative OOD categories)
         ood_alt_indices = [i for i, sample in enumerate(dataset) if sample['category'] in ALTERNATIVE_OOD_CATEGORIES]
@@ -90,7 +98,7 @@ def get_mmd_images(dataset, batch_size=BATCH_SIZE):
         ood_batch = next(iter(ood_alt_loader))
         return ood_batch['pixel_values'].to(DEVICE)
 
-    elif isinstance(dataset, ImageDataset):
+    elif isinstance(dataset, ImageDataset) or isinstance(dataset, ImageDatasetBrats) or isinstance(dataset, BRATSSliceDataset):
         # Separate indices for normal and disease classes based on labels
         normal_indices = [i for i, label in enumerate(dataset.labels) if label == 0]
         disease_indices = [i for i, label in enumerate(dataset.labels) if label == 1]
@@ -107,7 +115,7 @@ def get_mmd_images(dataset, batch_size=BATCH_SIZE):
         return ood_batch['pixel_values'].to(DEVICE)
 
     else:
-        raise ValueError(f"Unsupported dataset {dataset_type} for OOD batch generation")
+        raise ValueError(f"Unsupported dataset {type(dataset)} for OOD batch generation")
 
 
 def compute_mmd(x, y, kernel=torch.nn.functional.pairwise_distance):
@@ -224,7 +232,7 @@ def train_model(
             metrics['f1_score'] = round(f1, 4)
             metrics['roc_auc_score'] = round(roc_auc, 4)
 
-        mlflow.log_metrics(metrics, step=epoch)
+        mlflow.log_metrics({f'epoch_{key}': value for key, value in metrics.items()}, step=epoch)
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
@@ -232,6 +240,7 @@ def train_model(
             best_metrics = metrics
         else:
             patience_counter += 1
+            logger.info(f'Patience counter: {patience_counter}')
             if patience_counter >= PATIENCE:
                 logger.info(f'Early stopping triggered for Split {split_num + 1}.')
                 break
@@ -250,11 +259,13 @@ def main(
         classification_loss_type: str = 'BCEWithLogits',
         apply_mmd: bool = False,
         filter_ood: bool = False,
+        batch_size: int = BATCH_SIZE,
         num_splits: int = 15,
         num_epochs: int = NUM_EPOCHS,
         test_frac: float = 0.2,
         lr: float = LR,
         weight_decay: float = WEIGHT_DECAY,
+        num_workers: int = 0,
 ):
     """
     Train Visual Transformer for classification and MIM with cross-validation.
@@ -285,7 +296,7 @@ def main(
                 label_mapping=ULTRASOUND_LABELS_MAPPING,
                 transform=TRAIN_TRANSFORM
             )
-            labels = dataset.labels
+            labels = torch.tensor(dataset.labels, dtype=torch.long)
         elif data_type == 'coco':
             train_dataset = ImageDatasetCOCO(
                 annotation_file=SEGMENTED_TRAIN_ANNOTATIONS_PATH,
@@ -295,12 +306,12 @@ def main(
             val_dataset = ImageDatasetCOCO(
                 annotation_file=SEGMENTED_VAL_ANNOTATIONS_PATH,
                 image_dir=SEGMENTED_VAL_DATA_DIR,
-                transform=TRAIN_TRANSFORM,
+                transform=EVAL_TRANSFORM,
             )
             test_dataset = ImageDatasetCOCO(
                 annotation_file=SEGMENTED_TEST_ANNOTATIONS_PATH,
                 image_dir=SEGMENTED_TEST_DATA_DIR,
-                transform=TRAIN_TRANSFORM,
+                transform=EVAL_TRANSFORM,
             )
             dataset = train_dataset + val_dataset + test_dataset
             labels = torch.cat([
@@ -308,6 +319,19 @@ def main(
                 torch.stack(val_dataset.labels),
                 torch.stack(test_dataset.labels)
             ], dim=0)
+        elif data_type == 'brats':
+            dataset = ImageDatasetBrats(
+                image_dir=BRATS_TRAIN_DATA_DIR,
+                info_path=BRATS_TRAIN_SURVIVAL_INFO_PATH,
+                transform=TRAIN_TRANSFORM
+            )
+            labels = torch.tensor(dataset.labels, dtype=torch.long)
+        elif data_type == 'brats_slice':
+            dataset = BRATSSliceDataset(
+                image_dir=BRATS_TRAIN_DATA_DIR,
+                transform=TRAIN_TRANSFORM,
+            )
+            labels = torch.tensor(dataset.labels, dtype=torch.long)
         else:
             raise ValueError(f'Invalid data type: {data_type}')
 
@@ -322,8 +346,9 @@ def main(
             'classification_loss_type': classification_loss_type,
             'apply_mmd': apply_mmd,
             'filter_ood': filter_ood,
-            'batch_size': BATCH_SIZE,
+            'batch_size': batch_size,
             'num_epochs': NUM_EPOCHS,
+            'patience': PATIENCE,
             'dataset_size': len(dataset),
             'num_classes': num_classes,
             'event_rate': np.array(labels).mean(),
@@ -332,6 +357,8 @@ def main(
             'num_splits': num_splits,
             'weight_decay': WEIGHT_DECAY,
             'mim_weight': MIM_WEIGHT,
+            'mask_ratio': MASK_RATIO,
+            'num_workers': num_workers,
         })
 
         overall_metrics = {
@@ -345,17 +372,34 @@ def main(
 
         for split_num in range(num_splits):
             train_size = int((1 - test_frac) * len(dataset))
+            train_size = train_size // 10
+            print(f"train_size: {train_size}")
             val_size = len(dataset) - train_size
             train_subset, val_subset = random_split(dataset, [train_size, val_size])
 
             if filter_ood:
-                train_subset = Subset(train_subset, [i for i, sample in enumerate(train_subset) if sample['category'] not in OOD_CATEGORIES])
+                train_subset = Subset(
+                    train_subset,
+                    [i for i, sample in enumerate(train_subset) if sample['category'] not in OOD_CATEGORIES]
+                )
 
             with mlflow.start_run(run_name=f'Split_{split_num + 1}', nested=True) as split_run:
                 logger.info(f'Split {split_num + 1}/{num_splits}, Run ID: {split_run.info.run_id}')
 
-                train_loader = DataLoader(dataset=train_subset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-                val_loader = DataLoader(dataset=val_subset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
+                train_loader = DataLoader(
+                    dataset=train_subset,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    collate_fn=collate_fn,
+                    num_workers=num_workers
+                )
+                val_loader = DataLoader(
+                    dataset=val_subset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    collate_fn=collate_fn,
+                    num_workers=num_workers
+                )
 
                 if pre_trained_model_run_id:
                     pre_trained_model_path = output_dir / pre_trained_model_run_id / 'base_model.pth'
@@ -378,6 +422,8 @@ def main(
                     num_epochs=num_epochs,
                     split_num=split_num
                 )
+                # Log the best metrics for the split
+                mlflow.log_metrics(metrics)
 
                 for key, value in metrics.items():
                     overall_metrics[key].append(value)
@@ -387,9 +433,20 @@ def main(
                 mlflow.log_artifact(split_model_path)
 
         # Compute and log average metrics across all splits
-        avg_metrics = {f'avg_{key}': round(np.mean(values), 4) for key, values in overall_metrics.items()}
+        avg_metrics = dict()
+        conf_lower_metrics = dict()
+        conf_upper_metrics = dict()
+        for key, values in overall_metrics.items():
+            avg_metrics[f'avg_{key}'] = round(float(np.mean(values)), 4)
+            sigma = np.std(values, ddof=1)
+            conf_lower_metrics[f'{key}_lower'] = round(avg_metrics[f'avg_{key}'] - 2 * sigma, 4)
+            conf_upper_metrics[f'{key}_upper'] = round(avg_metrics[f'avg_{key}'] + 2 * sigma, 4)
+
         logger.info(f'Average metrics across all splits: {avg_metrics}')
+
         mlflow.log_metrics(avg_metrics)
+        mlflow.log_metrics(conf_lower_metrics)
+        mlflow.log_metrics(conf_upper_metrics)
 
         # select model closest to the average loss
         avg_loss = avg_metrics['avg_loss']

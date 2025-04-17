@@ -6,13 +6,21 @@ from torch import nn
 from torchvision import transforms
 from transformers import AutoModel
 
-from src.config import IMAGE_SIZE, TARGET_CATEGORIES
+from src.config import (IMAGE_SIZE, RUN_ID_BRATS_MIM_MSE,
+                        RUN_ID_CLASS_REAL_MSE, RUN_ID_CLASS_ULTRASOUND,
+                        RUN_ID_MIM_REAL_HUBER, RUN_ID_MIM_REAL_L1,
+                        RUN_ID_MIM_REAL_MSE, RUN_ID_MIM_REAL_SMOOTH_L1,
+                        RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED,
+                        RUN_ID_MIM_REAL_TUKEY, RUN_ID_MIM_ULTRASOUND_MSE,
+                        RUN_ID_REAL_MULTITASK, RUN_ID_ULTRASOUND_MULTITASK,
+                        TARGET_CATEGORIES)
 
-DEVICE = (
-    'cuda' if torch.cuda.is_available()
-    else 'mps' if torch.backends.mps.is_available()
-    else 'cpu'
-)
+# DEVICE = (
+#     'cuda' if torch.cuda.is_available()
+#     else 'mps' if torch.backends.mps.is_available()
+#     else 'cpu'
+# )
+DEVICE = 'cpu'
 
 TRAIN_TRANSFORM = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.5),
@@ -20,6 +28,12 @@ TRAIN_TRANSFORM = transforms.Compose([
     transforms.RandomRotation(degrees=15),
     transforms.RandomResizedCrop(size=IMAGE_SIZE, scale=(0.65, 0.85)),
     transforms.Resize(size=IMAGE_SIZE),
+    transforms.ToTensor()
+])
+
+TRAIN_TRANSFORM_SIMPLIFIED = transforms.Compose([
+    transforms.Resize(size=int(IMAGE_SIZE * 1.2)),
+    transforms.CenterCrop(size=IMAGE_SIZE),
     transforms.ToTensor()
 ])
 
@@ -272,3 +286,32 @@ def evaluate_model(model, loader, device):
         }
 
     return metrics
+
+
+def get_model_run_id(model_type):
+    if model_type == 'L1':
+        return RUN_ID_MIM_REAL_L1
+    elif model_type == 'MSE':
+        return RUN_ID_MIM_REAL_MSE
+    elif model_type == 'SMOOTH_L1':
+        return RUN_ID_MIM_REAL_SMOOTH_L1
+    elif model_type == 'HUBER':
+        return RUN_ID_MIM_REAL_HUBER
+    elif model_type == 'TUKEY':
+        return RUN_ID_MIM_REAL_TUKEY
+    elif model_type == 'SMOOTH_L1_FILTERED':
+        return RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED
+    elif model_type == 'ULTRASOUND':
+        return RUN_ID_MIM_ULTRASOUND_MSE
+    elif model_type == 'ULTRASOUND_CLASS':
+        return RUN_ID_CLASS_ULTRASOUND
+    elif model_type == 'ULTRASOUND_MULTITASK':
+        return RUN_ID_ULTRASOUND_MULTITASK
+    elif model_type == 'REAL_MULTITASK':
+        return RUN_ID_REAL_MULTITASK
+    elif model_type == 'REAL_CLASS_MSE':
+        return RUN_ID_CLASS_REAL_MSE
+    elif model_type == 'BRATS_MIM_MSE':
+        return RUN_ID_BRATS_MIM_MSE
+    else:
+        raise ValueError(f'Unknown model type: {model_type}')

@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
@@ -18,7 +20,7 @@ from src.config import (SEGMENTED_TEST_ANNOTATIONS_PATH,
                         TARGET_CATEGORIES)
 
 
-class MultiLabelImageDataset(torch.utils.data.Dataset):
+class MultiLabelImageDataset(Dataset):
     def __init__(self, image_dir, labels_file, transform=None):
         self.image_dir = image_dir
         self.transform = transform
@@ -199,7 +201,7 @@ class ImageDataset(Dataset):
                     if substr in str(img_path):
                         label = lbl
                         break
-            labels.append(label)
+            labels.append([1, 0] if label == 0 else [0, 1])
         return labels
 
     def __len__(self):
@@ -208,19 +210,164 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
         image = Image.open(img_path).convert('RGB')
+        label = self.labels[idx]
 
         # Apply transformations if provided
         if self.transform:
             image = self.transform(image)
 
-        # Get the label and convert it to a one-hot encoded tensor
-        if self.label_mapping:
-            label = torch.tensor(self.labels[idx], dtype=torch.long)
-            label_one_hot = torch.nn.functional.one_hot(label, num_classes=self.num_classes).float()
-        else:
-            label_one_hot = torch.tensor(0, dtype=torch.long)
+        label = torch.tensor(label, dtype=torch.long)
 
-        return image, label_one_hot
+        return image, label
+
+
+class ImageDatasetBrats(Dataset):
+    def __init__(self, image_dir, info_path, transform=None):
+        """
+        A PyTorch Dataset for loading images and assigning labels based on file path substrings.
+
+        Args:
+            image_dir (str or Path): Directory where the images are stored.
+            label_dir (str or Path): Directory where the labels are stored.
+            transform (callable, optional): Optional transform to be applied on an image.
+        """
+        self.image_dir = Path(image_dir)
+        self.info_path = Path(info_path)
+        self.transform = transform
+        self.image_paths = self._load_image_paths()
+        self.labels = self._generate_labels()
+        self.num_classes = len(self.labels[0])
+
+    def _load_image_paths(self):
+        """Recursively gather all image file paths from nested folders."""
+        df = pd.read_csv(self.info_path)
+        info_ids = df['Brats20ID'].values
+        image_paths = list(self.image_dir.rglob("*_t1.nii"))
+        image_paths = [path for path in image_paths if path.parent.name in info_ids]
+        return image_paths
+
+    def _generate_labels(self):
+        """Generate labels for each image"""
+        df = pd.read_csv(self.info_path)
+        df['Survival_days'] = df['Survival_days'].replace('ALIVE (361 days later)', '361').astype(int)
+        df['label'] = (df['Survival_days'] > 730).astype(int)
+
+        labels = []
+        for img_path in self.image_paths:
+            img_dir_name = img_path.parent.name
+            label = df[df['Brats20ID'] == img_dir_name]['label'].values[0]
+            labels.append([1, 0] if label == 0 else [0, 1])
+
+        return labels
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        label = self.labels[idx]
+        image_complete = nib.load(img_path).get_fdata()
+        image = image_complete[:, :, 80]
+        image = (image - image.min()) / (image.max() - image.min())
+        image = Image.fromarray((image * 255).astype(np.uint8)).convert('RGB')
+
+        if self.transform:
+            image = self.transform(image)
+
+        label = torch.tensor(label, dtype=torch.long)
+
+        return image, label
+
+
+class BRATSSliceDataset(Dataset):
+    def __init__(self, image_dir, slices_idx=(111, 120, 131), transform=None):
+        """
+        A PyTorch Dataset for loading selected slices of BRATS MRI scans and
+        classifying them based on the presence of cancer brain cells using segmentation data.
+
+        Args:
+            image_dir (str or Path): Directory where the BRATS MRI scans and segmentation masks are stored.
+            slices_idx (list of int, optional): List of slice indices to include for training.
+            transform (callable, optional): Optional transform to be applied on an image.
+        """
+        self.image_dir = Path(image_dir)
+        self.slices_idx = slices_idx  # List of specific slice indices
+        self.transform = transform
+
+        # Load the paths of all MRI scans and segmentation masks
+        self.image_paths = sorted(self.image_dir.rglob("*_t1.nii"))
+        self.seg_paths = sorted(self.image_dir.rglob("*_seg.nii"))
+
+        assert len(self.image_paths) == len(self.seg_paths), "Mismatch between scans and segmentation masks"
+
+        # Generate slice-level labels
+        self.slice_info = self._generate_slice_labels()
+        self.labels = [[1, 0] if label == 0 else [0, 1] for _, _, _, _, label in self.slice_info]
+
+    def _generate_slice_labels(self):
+        """
+        Generate labels for selected slices based on segmentation data.
+
+        Returns:
+            List[Tuple[Path, Path, int, int]]: A list where each item contains
+                - Path to the MRI scan file
+                - Path to the segmentation mask file
+                - Slice index
+                - Label (1 for cancer, 0 for no cancer)
+        """
+        slice_info = []
+
+        for img_path, seg_path in zip(self.image_paths, self.seg_paths):
+            # Load the segmentation mask
+            segmentation = nib.load(seg_path).get_fdata()
+            num_slices = segmentation.shape[2]
+
+            # If slices_idx is not provided, default to selecting middle slices
+            selected_slices = (
+                self.slices_idx if self.slices_idx else list(range(num_slices // 4, 3 * num_slices // 4))
+            )
+
+            # Ensure the selected indices are within bounds
+            selected_slices = [idx for idx in selected_slices if 0 <= idx < num_slices]
+            # Generate labels for selected slices
+            for slice_idx in selected_slices:
+                labeled_area_share = np.round(np.mean(segmentation[:, :, slice_idx] > 0), 8)
+                slice_label = 1 if labeled_area_share > 0.005 else 0
+                slice_info.append((img_path, seg_path, slice_idx, labeled_area_share, slice_label))
+
+        return slice_info
+
+    def _normalize_image(self, image):
+        min_val = image.min()
+        max_val = image.max()
+
+        if max_val == min_val:
+            return np.zeros_like(image)
+
+        return (image - min_val) / (max_val - min_val)
+
+    def __len__(self):
+        return len(self.slice_info)
+
+    def __getitem__(self, idx):
+        img_path, _, slice_idx, _, _ = self.slice_info[idx]
+
+        # Load the MRI scan and extract the specific slice
+        full_scan = nib.load(img_path).get_fdata()
+        slice_data = full_scan[:, :, slice_idx]
+
+        # Convert the slice to an image
+        slice_data_norm = self._normalize_image(slice_data)
+        slice_img = Image.fromarray((slice_data_norm * 255).astype(np.uint8)).convert('RGB')
+
+        # Apply transformations if specified
+        if self.transform:
+            slice_img = self.transform(slice_img)
+
+        # Convert the label to a tensor
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+
+        return slice_img, label
 
 
 def collate_fn(inputs):
@@ -292,10 +439,10 @@ def load_datasets(dateset_type, transform=None):
             labels_file=SYNTHETIC_TEST_LABELS_PATH,
             transform=transform
         )
-        val_size = int(0.1 * len(val_dataset))  # 10% of the dataset
+        val_size = int(0.1 * len(val_dataset))
         remaining_size = len(val_dataset) - val_size
         val_dataset, _ = random_split(val_dataset, [val_size, remaining_size])
     else:
-        raise ValueError(f"Unknown dataset type: {dateset_type}.")
+        raise ValueError(f'Unknown dataset type: {dateset_type}.')
 
     return train_dataset, val_dataset

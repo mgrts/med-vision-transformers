@@ -21,9 +21,9 @@ def compute_2sigma_confidence_interval(data):
 
 @app.command()
 def calculate_confidence_interval(
-        metric: str = 'val_loss',
+        metric: str = 'roc_auc_score',
         tracking_uri: str = TRACKING_URI,
-        parent_run_id: str = '3f6408c6505f4401a561f8365f5b2bce'
+        parent_run_id: str = ''
 ):
     """
     Calculate 2-sigma confidence interval for a specified metric across all nested runs under a parent MLflow run.

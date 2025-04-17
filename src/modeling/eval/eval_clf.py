@@ -23,8 +23,6 @@ from src.modeling.utils import DEVICE, TRAIN_TRANSFORM
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
-RUN_TYPE = 'multi-task l1'
-
 
 def compute_2sigma_confidence_interval(data):
     """
@@ -82,10 +80,6 @@ def get_parent_run_id(run_type):
         return 'cb34f67f2ed148b78133d3344a17abae'
     elif run_type == 'pre-trained l1':
         return '643620bc79024dcca5940284c570a8c7'
-    elif run_type == 'pre-trained mse':
-        return '168b16c539554ba29404180d42b22e12'
-    elif run_type == 'multi-task mse':
-        return 'b7a8f355026742dbaf456da8e2fc7cd1'
     elif run_type == 'multi-task l1':
         return '3f6408c6505f4401a561f8365f5b2bce'
     else:
@@ -94,20 +88,14 @@ def get_parent_run_id(run_type):
 
 @app.command()
 def main(
-        parent_run_id: str = get_parent_run_id(RUN_TYPE),
+        run_type: str = 'multi-task mse',
         dataset_type: str = 'coco',
         batch_size: int = BATCH_SIZE
 ):
     """
-    Evaluate a model for N splits from the dataset using a parent MLflow run ID.
-    Save classification metrics for each split and calculate average ROC AUC and its confidence interval.
-
-    Args:
-        parent_run_id (str): MLflow parent run ID for nested runs.
-        n_splits (int): Number of splits for cross-validation.
-        dataset_type (str): Dataset type ('coco').
-        batch_size (int): Batch size for evaluation.
+    Evaluate the model from a parent run ID and log metrics to MLflow.
     """
+    parent_run_id = get_parent_run_id(run_type)
     logger.info(f'Evaluating model from parent run ID: {parent_run_id}')
 
     mlflow.set_tracking_uri(TRACKING_URI)
@@ -167,7 +155,7 @@ def main(
         base_model = AutoModel.from_pretrained(
             BASE_MODEL_NAME, add_pooling_layer=False, attn_implementation='eager'
         )
-        if RUN_TYPE in ('no pre-training', 'pre-trained l1', 'pre-trained mse'):
+        if run_type in ('no pre-training', 'pre-trained l1', 'pre-trained mse'):
             model = MultiLabelClassificationTransformer(base_model, num_classes=num_classes)
         else:
             model = MultiTaskTransformer(base_model, image_size=IMAGE_SIZE, num_classes=num_classes)
@@ -177,7 +165,7 @@ def main(
 
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-        if RUN_TYPE in ('no pre-training', 'pre-trained l1', 'pre-trained mse'):
+        if run_type in ('no pre-training', 'pre-trained l1', 'pre-trained mse'):
             training_task = 'classification'
         else:
             training_task = 'multi-task'
@@ -215,9 +203,11 @@ def main(
     # Log metrics to MLflow
     with mlflow.start_run(experiment_id=experiment.experiment_id) as run:
         mlflow.log_param('dataset_type', dataset_type)
-        mlflow.log_param('run_type', RUN_TYPE)
+        mlflow.log_param('run_type', run_type)
+
         for key, value in avg_metrics.items():
             mlflow.log_metric(f'avg_{key}', value)
+
         mlflow.log_metric('roc_auc_2sigma_mean', roc_auc_mean)
         mlflow.log_metric('roc_auc_2sigma_lower', roc_auc_lower)
         mlflow.log_metric('roc_auc_2sigma_upper', roc_auc_upper)

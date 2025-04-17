@@ -2,23 +2,24 @@ from torch import nn
 
 
 class MIMHead(nn.Module):
-    def __init__(self, embed_dim, image_size, patch_size):
+    def __init__(self, embed_dim, image_size, patch_size, dropout_rate=0.1):
         super(MIMHead, self).__init__()
         self.embed_dim = embed_dim
         self.patch_size = patch_size
         self.image_size = image_size
         self.num_patches_per_dim = self.image_size // self.patch_size
         self.num_patches = self.num_patches_per_dim ** 2
+        self.dropout_rate = dropout_rate
 
         self.decoder = nn.Sequential(
             nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim * 2, kernel_size=3, padding=1),
             nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.Dropout(p=0.2),
+            nn.Dropout(p=self.dropout_rate),
             nn.Conv2d(in_channels=embed_dim * 2, out_channels=embed_dim, kernel_size=3, padding=1),
             nn.LeakyReLU(negative_slope=0.01, inplace=True),
             nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim // 2, kernel_size=3, padding=1),
             nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.Dropout(p=0.2),
+            nn.Dropout(p=self.dropout_rate),
             nn.Conv2d(in_channels=embed_dim // 2, out_channels=3 * (patch_size ** 2), kernel_size=1),
             nn.PixelShuffle(patch_size)
         )
@@ -34,7 +35,7 @@ class MIMHead(nn.Module):
 
 
 class MultiLabelClassificationHead(nn.Module):
-    def __init__(self, embed_dim, num_patches_per_dim, num_classes, dropout_rate=0.3):
+    def __init__(self, embed_dim, num_patches_per_dim, num_classes, dropout_rate=0.1):
         super(MultiLabelClassificationHead, self).__init__()
         self.embed_dim = embed_dim
         self.num_patches_per_dim = num_patches_per_dim
@@ -50,7 +51,8 @@ class MultiLabelClassificationHead(nn.Module):
         # Fully connected layer for classification with Dropout
         self.fc = nn.Sequential(
             nn.Linear(embed_dim, 128),  # Hidden layer
-            nn.ReLU(),  # Activation
+            # nn.ReLU(),  # Activation
+            nn.LeakyReLU(negative_slope=0.01, inplace=True),  # Activation
             nn.Dropout(p=self.dropout_rate),  # Add dropout here
             nn.Linear(128, self.num_classes)  # Output layer based on num_classes
         )
@@ -81,13 +83,14 @@ class MultiLabelClassificationHead(nn.Module):
 
 
 class MIMTransformer(nn.Module):
-    def __init__(self, base_model, image_size):
+    def __init__(self, base_model, dropout_rate=0.1):
         super().__init__()
         self.base_model = base_model
         self.image_size = self.base_model.config.image_size
         self.patch_size = self.base_model.config.patch_size
         self.embed_dim = self.base_model.config.hidden_size
-        self.mim_head = MIMHead(self.embed_dim, self.image_size, self.patch_size)
+        self.dropout_rate = dropout_rate
+        self.mim_head = MIMHead(self.embed_dim, self.image_size, self.patch_size, self.dropout_rate)
 
     def forward(self, x):
         base_output = self.base_model(x)
@@ -96,14 +99,16 @@ class MIMTransformer(nn.Module):
 
 
 class MultiLabelClassificationTransformer(nn.Module):
-    def __init__(self, base_model, num_classes):
+    def __init__(self, base_model, num_classes, dropout_rate=0.1):
         super().__init__()
         self.base_model = base_model
         self.embed_dim = self.base_model.config.hidden_size
+        self.dropout_rate = dropout_rate
         self.classification_head = MultiLabelClassificationHead(
             embed_dim=self.embed_dim,
             num_patches_per_dim=self.base_model.config.image_size // self.base_model.config.patch_size,
-            num_classes=num_classes
+            num_classes=num_classes,
+            dropout_rate=self.dropout_rate
         )
 
     def forward(self, x):
@@ -113,17 +118,19 @@ class MultiLabelClassificationTransformer(nn.Module):
 
 
 class MultiTaskTransformer(nn.Module):
-    def __init__(self, base_model, image_size, num_classes):
+    def __init__(self, base_model, image_size, num_classes, dropout_rate=0.1):
         super().__init__()
         self.base_model = base_model
         self.patch_size = self.base_model.config.patch_size
         self.embed_dim = self.base_model.config.hidden_size
+        self.dropout_rate = dropout_rate
         self.classification_head = MultiLabelClassificationHead(
             embed_dim=self.embed_dim,
             num_patches_per_dim=image_size // self.patch_size,
-            num_classes=num_classes
+            num_classes=num_classes,
+            dropout_rate=self.dropout_rate
         )
-        self.mim_head = MIMHead(self.embed_dim, image_size, self.patch_size)
+        self.mim_head = MIMHead(self.embed_dim, image_size, self.patch_size, self.dropout_rate)
 
     def forward(self, x, x_masked):
         x_base = self.base_model(x)
