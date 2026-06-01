@@ -4,19 +4,9 @@ import typer
 from loguru import logger
 
 from src.config import TRACKING_URI
+from src.modeling.utils import confidence_interval
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
-
-
-def compute_2sigma_confidence_interval(data):
-    """
-    Compute the confidence interval for a given data array using 2-sigma (two standard deviations).
-    """
-    mean = np.mean(data)
-    std_dev = np.std(data, ddof=1)
-    margin_of_error = 2 * std_dev  # 2-sigma is approximately 95% confidence interval
-
-    return mean, mean - margin_of_error, mean + margin_of_error
 
 
 @app.command()
@@ -26,14 +16,14 @@ def calculate_confidence_interval(
         parent_run_id: str = ''
 ):
     """
-    Calculate 2-sigma confidence interval for a specified metric across all nested runs under a parent MLflow run.
+    Calculate a t-based 95% confidence interval for a metric across all nested runs of a parent MLflow run.
 
     Args:
         metric (str): The metric to calculate the confidence interval for (e.g., 'roc_auc_score', 'val_loss').
         tracking_uri (str): The MLflow tracking URI.
         parent_run_id (str): The parent run ID to fetch nested runs.
     """
-    client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+    client = mlflow.tracking.MlflowClient(tracking_uri=str(tracking_uri))
 
     # Retrieve the parent run to get the experiment ID
     parent_run = client.get_run(parent_run_id)
@@ -57,15 +47,15 @@ def calculate_confidence_interval(
 
     metric_values = np.array(metric_values)
 
-    # Compute the 2-sigma confidence interval
-    mean, lower_bound, upper_bound = compute_2sigma_confidence_interval(metric_values)
+    # Compute a t-based 95% confidence interval (shared implementation)
+    mean, lower_bound, upper_bound = confidence_interval(metric_values)
 
     # Print the results
     logger.info(f'Parent Run ID: {parent_run_id}')
     logger.info(f'Metric: {metric}')
     logger.info(f'Metric Values: {metric_values}')
     logger.info(f'Mean {metric}: {mean:.4f}')
-    logger.info(f'2-Sigma Confidence Interval: [{lower_bound:.4f}, {upper_bound:.4f}]')
+    logger.info(f'95% Confidence Interval: [{lower_bound:.4f}, {upper_bound:.4f}]')
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ from sklearn.cluster import KMeans
 from torch.nn import functional as F
 from torchvision import transforms
 
-from src.config import FIGURES_DIR, RAW_DATA_DIR
+from src.config import FIGURES_DIR, IMAGENET_MEAN, IMAGENET_STD, RAW_DATA_DIR
 
 
 class DINOv2Segmentation:
@@ -22,7 +22,8 @@ class DINOv2Segmentation:
         self.features = None
         self.preprocess = transforms.Compose([
             transforms.Resize((224, 224)),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),  # DINOv2 expects ImageNet norm
         ])
         self._register_hook()
 

@@ -47,12 +47,17 @@ Vision transformers for medical data research
     │
     ├── dataset.py              <- Scripts to download or generate data
     │
-    ├── features.py             <- Code to create features for modeling
-    │
     ├── modeling
     │   ├── __init__.py
-    │   ├── predict.py          <- Code to run model inference with trained models
-    │   └── train.py            <- Code to train models
+    │   ├── data_processing.py  <- Datasets, transforms, masking helpers
+    │   ├── models.py           <- ViT heads (MIM / classification / multi-task)
+    │   ├── utils.py            <- Device, transforms, losses, shared helpers
+    │   ├── predict.py          <- Attention / MIM-reconstruction visualization
+    │   ├── segmentation.py     <- DINOv2 + k-means segmentation
+    │   ├── train.py            <- Train models (k-fold CV + held-out test)
+    │   └── eval
+    │       ├── eval_clf.py     <- Evaluate a trained run on the held-out test set
+    │       └── eval_run.py     <- Confidence interval for a metric across folds
     │
     └── plots.py                <- Code to create visualizations
 ```
@@ -66,3 +71,17 @@ pip install -r requirements.txt
 pre-commit install
 pre-commit run --all-files
 ```
+
+Copy `.env.example` to `.env` and populate the `RUN_ID_*` identifiers with the MLflow run
+ids of your trained runs (used by `src/modeling/predict.py`). The `models/` and `mlruns/`
+directories hold weights and tracking data and are not version-controlled.
+
+## Experiment protocol
+
+Training (`src/modeling/train.py`) uses **stratified k-fold cross-validation** on the
+training pool and keeps a **held-out test set** untouched (the dataset's official COCO test
+split, or a freshly carved stratified split for the other datasets) for a single final
+evaluation. Cross-validation metrics are reported as a mean with a t-based 95% confidence
+interval; classification is a single-logit binary task (PR-AUC is the headline metric for
+the imbalanced caries detection). Inputs are ImageNet-normalized and MIM reconstructs in
+that normalized space, computing its loss only on masked patches.

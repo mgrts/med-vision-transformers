@@ -16,7 +16,8 @@ from src.config import (BASE_MODEL_NAME, BRATS_TRAIN_DATA_DIR,
 from src.modeling.data_processing import (ImageDataset, ImageDatasetBrats,
                                           ImageDatasetCOCO, create_mask)
 from src.modeling.models import MIMTransformer, MultiTaskTransformer
-from src.modeling.utils import DEVICE, EVAL_TRANSFORM, get_model_run_id
+from src.modeling.utils import (DEVICE, EVAL_TRANSFORM, denormalize,
+                                get_model_run_id)
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
@@ -26,7 +27,7 @@ def load_dino_model(model_load_path, model_name='facebook/dino-vits8'):
     Load a pretrained DINO model without the MIM head for attention visualization.
     """
     model = AutoModel.from_pretrained(model_name, add_pooling_layer=False, attn_implementation='eager')
-    model.load_state_dict(torch.load(model_load_path))  # Load weights from model_load_path
+    model.load_state_dict(torch.load(model_load_path, map_location=DEVICE))  # Load weights from model_load_path
     return model
 
 
@@ -34,8 +35,8 @@ def load_mim_model(dino_model, mim_model_load_path):
     """
     Create and load a MIM model by combining the DINO model with a MIM head.
     """
-    model = MIMTransformer(base_model=dino_model, image_size=IMAGE_SIZE)
-    model.load_state_dict(torch.load(mim_model_load_path))  # Load the MIM head weights
+    model = MIMTransformer(base_model=dino_model)
+    model.load_state_dict(torch.load(mim_model_load_path, map_location=DEVICE))  # Load the MIM head weights
     return model
 
 
@@ -129,8 +130,8 @@ def main(model_type: str = 'BRATS_MIM_MSE',
     )
 
     if 'MULTITASK' in model_type:
-        mt_model = MultiTaskTransformer(base_model=base_model, image_size=IMAGE_SIZE, num_classes=2)
-        mt_model.load_state_dict(torch.load(model_load_path))
+        mt_model = MultiTaskTransformer(base_model=base_model, image_size=IMAGE_SIZE, num_classes=1)
+        mt_model.load_state_dict(torch.load(model_load_path, map_location=DEVICE))
 
         dino_model = mt_model.base_model
         patch_size = dino_model.config.patch_size
@@ -143,28 +144,28 @@ def main(model_type: str = 'BRATS_MIM_MSE',
         # Load the DINO model without the head (for attention visualization)
         dino_model = load_dino_model(model_load_path)
 
-        # Get patch info from the model
+        # Get patch info from the model (used below for masking)
         patch_size = dino_model.config.patch_size
-        embed_dim = dino_model.config.hidden_size
 
-        mim_model = load_mim_model(dino_model, mim_model_load_path, embed_dim, patch_size)
+        mim_model = load_mim_model(dino_model, mim_model_load_path)
         mim_model.to(DEVICE)
 
     # Generate a mask
     batch_size = pixel_values.size(0)
     mask = create_mask(batch_size, IMAGE_SIZE, patch_size, MASK_RATIO).to(DEVICE)
 
-    # Apply the mask directly to the pixels (no need to extract patches first)
+    # Apply the mask directly to the pixels (no need to extract patches first).
+    # Fill with 0.0 (the post-normalization mean), matching training-time masking.
     masked_image = pixel_values.clone()
-    masked_image[~mask] = 1
+    masked_image[~mask] = 0.0
 
-    # Get restored image (output from the MIM model)
+    # Get restored image (output from the MIM model, in normalized space)
     restored_image = mim_model(masked_image)
 
-    # Visualize and save the initial, masked, and restored images
-    torchvision.utils.save_image(pixel_values, os.path.join(FIGURES_DIR, 'initial_image.png'))
-    torchvision.utils.save_image(masked_image, os.path.join(FIGURES_DIR, 'masked_image.png'))
-    torchvision.utils.save_image(restored_image, os.path.join(FIGURES_DIR, 'restored_image.png'))
+    # Inputs and the MIM reconstruction live in ImageNet-normalized space; denormalize to [0,1] for saving.
+    torchvision.utils.save_image(denormalize(pixel_values), os.path.join(FIGURES_DIR, 'initial_image.png'))
+    torchvision.utils.save_image(denormalize(masked_image), os.path.join(FIGURES_DIR, 'masked_image.png'))
+    torchvision.utils.save_image(denormalize(restored_image), os.path.join(FIGURES_DIR, 'restored_image.png'))
 
     # Visualize and save attention maps
     visualize_attention_maps(pixel_values, dino_model, FIGURES_DIR)

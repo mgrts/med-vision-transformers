@@ -1,47 +1,82 @@
+import os
+
 import numpy as np
 import torch
-from sklearn.metrics import (accuracy_score, precision_score, recall_score,
-                             roc_auc_score)
+from scipy import stats
 from torch import nn
 from torchvision import transforms
 from transformers import AutoModel
 
-from src.config import (IMAGE_SIZE, RUN_ID_BRATS_MIM_MSE,
-                        RUN_ID_CLASS_REAL_MSE, RUN_ID_CLASS_ULTRASOUND,
-                        RUN_ID_MIM_REAL_HUBER, RUN_ID_MIM_REAL_L1,
-                        RUN_ID_MIM_REAL_MSE, RUN_ID_MIM_REAL_SMOOTH_L1,
+from src.config import (IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD,
+                        RUN_ID_BRATS_MIM_MSE, RUN_ID_CLASS_REAL_MSE,
+                        RUN_ID_CLASS_ULTRASOUND, RUN_ID_MIM_REAL_HUBER,
+                        RUN_ID_MIM_REAL_L1, RUN_ID_MIM_REAL_MSE,
+                        RUN_ID_MIM_REAL_SMOOTH_L1,
                         RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED,
                         RUN_ID_MIM_REAL_TUKEY, RUN_ID_MIM_ULTRASOUND_MSE,
-                        RUN_ID_REAL_MULTITASK, RUN_ID_ULTRASOUND_MULTITASK,
-                        TARGET_CATEGORIES)
+                        RUN_ID_REAL_MULTITASK, RUN_ID_ULTRASOUND_MULTITASK)
 
-# DEVICE = (
-#     'cuda' if torch.cuda.is_available()
-#     else 'mps' if torch.backends.mps.is_available()
-#     else 'cpu'
-# )
-DEVICE = 'cpu'
+# Auto-detect the compute device, with an optional DEVICE env override (e.g. DEVICE=cpu).
+DEVICE = os.environ.get('DEVICE') or (
+    'cuda' if torch.cuda.is_available()
+    else 'mps' if torch.backends.mps.is_available()
+    else 'cpu'
+)
+
+# Normalize to the ImageNet statistics the DINO backbone was pretrained on.
+NORMALIZE = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+# Standard 0.875 center-crop ratio (e.g. 256 -> 224); train and eval share this FOV.
+_RESIZE = int(round(IMAGE_SIZE / 0.875))
 
 TRAIN_TRANSFORM = transforms.Compose([
+    transforms.RandomResizedCrop(size=IMAGE_SIZE, scale=(0.8, 1.0)),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomVerticalFlip(p=0.5),
-    transforms.RandomRotation(degrees=15),
-    transforms.RandomResizedCrop(size=IMAGE_SIZE, scale=(0.65, 0.85)),
-    transforms.Resize(size=IMAGE_SIZE),
-    transforms.ToTensor()
+    transforms.RandomRotation(degrees=15),  # vertical flip dropped: anatomically invalid
+    transforms.ToTensor(),
+    NORMALIZE,
 ])
 
+# Deterministic variant with the same field-of-view as EVAL_TRANSFORM.
 TRAIN_TRANSFORM_SIMPLIFIED = transforms.Compose([
-    transforms.Resize(size=int(IMAGE_SIZE * 1.2)),
+    transforms.Resize(size=_RESIZE),
     transforms.CenterCrop(size=IMAGE_SIZE),
-    transforms.ToTensor()
+    transforms.ToTensor(),
+    NORMALIZE,
 ])
 
 EVAL_TRANSFORM = transforms.Compose([
-    transforms.Resize(size=int(IMAGE_SIZE * 1.4)),
+    transforms.Resize(size=_RESIZE),
     transforms.CenterCrop(size=IMAGE_SIZE),
-    transforms.ToTensor()
+    transforms.ToTensor(),
+    NORMALIZE,
 ])
+
+
+def denormalize(tensor):
+    """Invert ImageNet normalization for visualization; returns a [0,1]-clamped tensor."""
+    mean = torch.tensor(IMAGENET_MEAN, device=tensor.device).view(1, 3, 1, 1)
+    std = torch.tensor(IMAGENET_STD, device=tensor.device).view(1, 3, 1, 1)
+    return (tensor * std + mean).clamp(0.0, 1.0)
+
+
+def confidence_interval(values, confidence=0.95):
+    """Two-sided t-based confidence interval for the mean of ``values``.
+
+    Returns ``(mean, lower, upper)``; for fewer than two values returns ``(mean, mean, mean)``.
+    Valid only when the values are (approximately) independent — i.e. across disjoint
+    cross-validation folds, not overlapping random subsamples.
+    """
+    values = np.asarray(values, dtype=float)
+    n = values.size
+    if n == 0:
+        return float('nan'), float('nan'), float('nan')
+    mean = float(np.mean(values))
+    if n < 2:
+        return mean, mean, mean
+    se = float(np.std(values, ddof=1)) / np.sqrt(n)
+    t_crit = float(stats.t.ppf(0.5 + confidence / 2.0, df=n - 1))
+    margin = t_crit * se
+    return mean, mean - margin, mean + margin
 
 
 def load_pretrained_model(base_model_name, state_dict_path):
@@ -49,7 +84,7 @@ def load_pretrained_model(base_model_name, state_dict_path):
     Load a pre-trained model from Hugging Face transformers library.
     """
     model = AutoModel.from_pretrained(base_model_name, add_pooling_layer=False, attn_implementation='eager')
-    model.load_state_dict(torch.load(state_dict_path))
+    model.load_state_dict(torch.load(state_dict_path, map_location=DEVICE))
     return model
 
 
@@ -120,12 +155,15 @@ def get_regression_loss_function(loss_type):
         raise ValueError(f"Unknown loss type: {loss_type}")
 
 
-def get_classification_loss_function(loss_type):
+def get_classification_loss_function(loss_type, pos_weight=None):
     """
     Return the classification loss function based on the specified loss_type.
+
+    ``pos_weight`` (a tensor) up-weights the positive class for BCEWithLogits to counter
+    class imbalance; it is ignored by the other loss variants.
     """
     if loss_type == 'BCEWithLogits':
-        return nn.BCEWithLogitsLoss()  # Default for multilabel classification
+        return nn.BCEWithLogitsLoss(pos_weight=pos_weight)  # Default for binary/multilabel
     elif loss_type == 'Focal':
         class FocalLoss(nn.Module):
             def __init__(self, alpha=1.0, gamma=2.0):
@@ -195,8 +233,11 @@ def get_classification_loss_function(loss_type):
                 Returns:
                     Tensor: The computed Q-BCE loss.
                 """
-                # Sigmoid activation to convert logits to probabilities
-                probs = torch.sigmoid(logits)
+                # Sigmoid activation to convert logits to probabilities.
+                # Clamp away from 0/1 so the q-logarithm (and the q==1 log branch)
+                # stay finite for saturated sigmoid outputs.
+                eps = 1e-6
+                probs = torch.sigmoid(logits).clamp(min=eps, max=1.0 - eps)
 
                 # Compute the q-logarithm
                 if self.q == 1.0:
@@ -229,63 +270,31 @@ class MultiTaskLoss(nn.Module):
         self.classification_loss = classification_loss
         self.mim_weight = mim_weight
 
-    def forward(self, mim_output, class_output, images, labels):
-        mim_loss = self.regression_loss(mim_output, images)
+    def forward(self, mim_output, class_output, images, labels, mask):
+        # Reconstruction loss only on masked pixels (mask is True for KEPT/visible pixels),
+        # so the model cannot trivially copy visible patches.
+        masked = ~mask
+        mim_loss = self.regression_loss(mim_output[masked], images[masked])
         class_loss = self.classification_loss(class_output, labels.float())
         return class_loss + self.mim_weight * mim_loss
 
 
-def compute_mmd(x, y, kernel=torch.nn.functional.pairwise_distance):
-    """Compute the MMD loss between two sets of samples, x and y."""
-    xx = kernel(x.unsqueeze(1), x.unsqueeze(0)).mean()
-    yy = kernel(y.unsqueeze(1), y.unsqueeze(0)).mean()
-    xy = kernel(x.unsqueeze(1), y.unsqueeze(0)).mean()
-    mmd_loss = xx + yy - 2 * xy
-    return mmd_loss
+def compute_mmd(x, y):
+    """Gaussian (RBF) kernel Maximum Mean Discrepancy between two batches.
 
-
-def evaluate_model(model, loader, device):
+    Each sample is flattened to a feature vector and an RBF kernel with a
+    median-heuristic bandwidth is used, so the estimator is a proper (non-negative)
+    MMD: ``E[k(x,x')] + E[k(y,y')] - 2 E[k(x,y)]``.
     """
-    Evaluate the model and compute metrics (accuracy, precision, recall, ROC AUC).
-    """
-    model.eval()
-    true_labels, predicted_probs, predicted_labels = [], [], []
+    x = x.flatten(1)
+    y = y.flatten(1)
 
-    with torch.no_grad():
-        for batch in loader:
-            images = batch['pixel_values'].to(device)
-            labels = batch['labels'].to(device)
+    def rbf(a, b):
+        d2 = torch.cdist(a, b) ** 2
+        sigma2 = d2.detach().median().clamp(min=1e-8)
+        return torch.exp(-d2 / sigma2)
 
-            outputs = torch.sigmoid(model(images))
-            predictions = (outputs > 0.5).float()
-
-            true_labels.append(labels.cpu().numpy())
-            predicted_probs.append(outputs.cpu().numpy())
-            predicted_labels.append(predictions.cpu().numpy())
-
-    true_labels = np.vstack(true_labels)
-    predicted_probs = np.vstack(predicted_probs)
-    predicted_labels = np.vstack(predicted_labels)
-
-    metrics = {}
-    for i, category in enumerate(TARGET_CATEGORIES):
-        true_category = true_labels[:, i]
-        pred_probs_category = predicted_probs[:, i]
-        pred_category = predicted_labels[:, i]
-
-        accuracy = accuracy_score(true_category, pred_category)
-        precision = precision_score(true_category, pred_category, zero_division=0)
-        recall = recall_score(true_category, pred_category, zero_division=0)
-        roc_auc = roc_auc_score(true_category, pred_probs_category)
-
-        metrics[category] = {
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'roc_auc': roc_auc
-        }
-
-    return metrics
+    return rbf(x, x).mean() + rbf(y, y).mean() - 2 * rbf(x, y).mean()
 
 
 def get_model_run_id(model_type):

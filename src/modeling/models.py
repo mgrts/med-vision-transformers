@@ -23,14 +23,14 @@ class MIMHead(nn.Module):
             nn.Conv2d(in_channels=embed_dim // 2, out_channels=3 * (patch_size ** 2), kernel_size=1),
             nn.PixelShuffle(patch_size)
         )
-        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x = x.last_hidden_state[:, 1:, :]  # shape: [batch_size, num_patches, embed_dim]
         x = x.view(-1, self.num_patches_per_dim, self.num_patches_per_dim, self.embed_dim)
         x = x.permute(0, 3, 1, 2)
+        # Reconstruct in the (ImageNet-normalized) input space — no final activation, so the
+        # output range matches the normalized reconstruction target instead of [0, 1].
         x = self.decoder(x)
-        x = self.sigmoid(x)
         return x
 
 

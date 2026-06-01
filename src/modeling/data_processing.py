@@ -1,4 +1,5 @@
 import os
+from bisect import bisect_right
 from pathlib import Path
 
 import nibabel as nib
@@ -8,15 +9,13 @@ import torch
 from PIL import Image
 from pycocotools.coco import COCO
 from torch import nn
-from torch.utils.data import Dataset, random_split
+from torch.utils.data import ConcatDataset, Dataset, Subset
 
-from src.config import (SEGMENTED_TEST_ANNOTATIONS_PATH,
-                        SEGMENTED_TEST_DATA_DIR,
-                        SEGMENTED_TRAIN_ANNOTATIONS_PATH,
-                        SEGMENTED_TRAIN_DATA_DIR,
-                        SEGMENTED_VAL_ANNOTATIONS_PATH, SEGMENTED_VAL_DATA_DIR,
-                        SYNTHETIC_TEST_DATA_DIR, SYNTHETIC_TEST_LABELS_PATH,
-                        SYNTHETIC_TRAIN_DATA_DIR, SYNTHETIC_TRAIN_LABELS_PATH,
+from loguru import logger
+
+from src.config import (BRATS_SLICE_INDICES, BRATS_SURVIVAL_SLICE,
+                        BRATS_SURVIVAL_THRESHOLD_DAYS,
+                        BRATS_TUMOR_AREA_THRESHOLD, MASK_RATIO,
                         TARGET_CATEGORIES)
 
 
@@ -58,7 +57,7 @@ class MultiLabelImageDataset(Dataset):
 
         # Fetch the corresponding labels (circle, square, triangle) for the given image_name
         labels_dict = self.labels_dict[image_name]
-        labels = torch.tensor([labels_dict['circle'], labels_dict['square'], labels_dict['triangle']],
+        labels = torch.tensor([labels_dict[c] for c in self.target_categories],
                               dtype=torch.float32)
 
         return image, labels
@@ -94,8 +93,8 @@ class ImageDatasetCOCO(Dataset):
         # Filter images based on excluded and included categories
         self.image_ids = self.filter_images()
 
-        # Initialize number of classes (+1 for "background" or "no category")
-        self.num_classes = len(self.target_categories) + 1
+        # One binary output per target category (no separate complementary background class).
+        self.num_classes = len(self.target_categories)
 
         # Generate labels for all valid images
         self.labels = self._generate_labels()
@@ -122,26 +121,31 @@ class ImageDatasetCOCO(Dataset):
         return valid_image_ids
 
     def _generate_labels(self):
-        """Generate one-hot encoded labels for each valid image."""
+        """Generate a multi-hot label per image over the target categories.
+
+        For a single target (CARIES) this is a binary label: [1.] if the category is
+        present, [0.] otherwise. Absence is encoded as all-zeros, not a separate class.
+        """
         labels = []
         for image_id in self.image_ids:
             label = torch.zeros(self.num_classes, dtype=torch.float32)
             annotation_ids = self.coco.getAnnIds(imgIds=image_id, iscrowd=False)
             annotations = self.coco.loadAnns(annotation_ids)
 
-            # Assign 1 for matching categories
             for ann in annotations:
                 category_name = self.coco.loadCats(ann['category_id'])[0]['name']
                 if category_name in self.target_categories:
-                    label_idx = self.target_categories.index(category_name)
-                    label[label_idx] = 1
-
-            # Set the "background" label if no categories match
-            if label.sum() == 0:
-                label[-1] = 1
+                    label[self.target_categories.index(category_name)] = 1.0
 
             labels.append(label)
         return labels
+
+    def get_categories(self, idx):
+        """Return the set of annotation category names for the image at index ``idx``."""
+        image_id = self.image_ids[idx]
+        annotation_ids = self.coco.getAnnIds(imgIds=image_id, iscrowd=False)
+        annotations = self.coco.loadAnns(annotation_ids)
+        return {self.coco.loadCats(ann['category_id'])[0]['name'] for ann in annotations}
 
     def __len__(self):
         return len(self.image_ids)
@@ -182,27 +186,37 @@ class ImageDataset(Dataset):
         self.image_dir = Path(image_dir)
         self.label_mapping = label_mapping
         self.transform = transform
-        self.image_paths = self._load_image_paths()
-        self.labels = self._generate_labels()
-        self.num_classes = len(set(label_mapping.values())) if label_mapping else 0
+        self.image_paths, self.labels = self._load_paths_and_labels()
+        self.num_classes = 1  # single binary output
 
-    def _load_image_paths(self):
-        """Recursively gather all image file paths from nested folders."""
-        image_paths = list(self.image_dir.rglob("*.jpg")) + list(self.image_dir.rglob("*.png"))
-        return image_paths
+    def _load_paths_and_labels(self):
+        """Gather image paths and binary labels via path-substring matching.
 
-    def _generate_labels(self):
-        """Generate labels for each image path based on the label mapping dictionary, if provided."""
-        labels = []
-        for img_path in self.image_paths:
-            label = -1  # Default label if no substring matches or no mapping is provided
+        Files matching no label substring are SKIPPED (with a warning) rather than
+        silently coerced to a class, so unlabeled files cannot contaminate the data.
+        """
+        all_paths = sorted(self.image_dir.rglob("*.jpg")) + sorted(self.image_dir.rglob("*.png"))
+        paths, labels, skipped = [], [], 0
+        for img_path in all_paths:
+            label = None
             if self.label_mapping:
                 for substr, lbl in self.label_mapping.items():
                     if substr in str(img_path):
                         label = lbl
                         break
-            labels.append([1, 0] if label == 0 else [0, 1])
-        return labels
+            else:
+                label = 0  # no mapping (e.g. inference/visualization): single negative class
+            if label is None:
+                skipped += 1
+                continue
+            paths.append(img_path)
+            labels.append([float(label)])
+        if skipped:
+            logger.warning(
+                f"ImageDataset: skipped {skipped} file(s) under {self.image_dir} matching no "
+                f"label substring in {list(self.label_mapping)}"
+            )
+        return paths, labels
 
     def __len__(self):
         return len(self.image_paths)
@@ -210,13 +224,12 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
         image = Image.open(img_path).convert('RGB')
-        label = self.labels[idx]
 
         # Apply transformations if provided
         if self.transform:
             image = self.transform(image)
 
-        label = torch.tensor(label, dtype=torch.long)
+        label = torch.tensor(self.labels[idx], dtype=torch.float32)
 
         return image, label
 
@@ -234,56 +247,66 @@ class ImageDatasetBrats(Dataset):
         self.image_dir = Path(image_dir)
         self.info_path = Path(info_path)
         self.transform = transform
+        # NOTE: binary 2-year survival predicted from a SINGLE axial slice — a deliberate
+        # simplification; a clinically faithful model would use the full 3D volume.
+        self.id_to_label = self._build_label_map()
         self.image_paths = self._load_image_paths()
-        self.labels = self._generate_labels()
-        self.num_classes = len(self.labels[0])
+        self.labels = [[float(self.id_to_label[p.parent.name])] for p in self.image_paths]
+        self.num_classes = 1
+
+    def _build_label_map(self):
+        """Map Brats20ID -> binary 2-year-survival label, dropping censored rows.
+
+        'ALIVE (... days later)' and other non-numeric Survival_days are right-censored:
+        the true survival time is unknown, so these patients cannot be labeled for a
+        survived-beyond-2-years target and are excluded rather than mislabeled.
+        """
+        df = pd.read_csv(self.info_path)
+        days = pd.to_numeric(df['Survival_days'], errors='coerce')
+        valid = df.loc[days.notna(), ['Brats20ID']].copy()
+        valid['days'] = days[days.notna()]
+        dropped = len(df) - len(valid)
+        if dropped:
+            logger.warning(
+                f"ImageDatasetBrats: dropped {dropped} censored/non-numeric Survival_days "
+                f"row(s) that cannot be labeled for {BRATS_SURVIVAL_THRESHOLD_DAYS}-day survival"
+            )
+        labels = (valid['days'] > BRATS_SURVIVAL_THRESHOLD_DAYS).astype(int)
+        return dict(zip(valid['Brats20ID'], labels))
 
     def _load_image_paths(self):
-        """Recursively gather all image file paths from nested folders."""
-        df = pd.read_csv(self.info_path)
-        info_ids = df['Brats20ID'].values
-        image_paths = list(self.image_dir.rglob("*_t1.nii"))
-        image_paths = [path for path in image_paths if path.parent.name in info_ids]
-        return image_paths
-
-    def _generate_labels(self):
-        """Generate labels for each image"""
-        df = pd.read_csv(self.info_path)
-        df['Survival_days'] = df['Survival_days'].replace('ALIVE (361 days later)', '361').astype(int)
-        df['label'] = (df['Survival_days'] > 730).astype(int)
-
-        labels = []
-        for img_path in self.image_paths:
-            img_dir_name = img_path.parent.name
-            label = df[df['Brats20ID'] == img_dir_name]['label'].values[0]
-            labels.append([1, 0] if label == 0 else [0, 1])
-
-        return labels
+        """Gather t1 scans whose patient has a usable (non-censored) survival label."""
+        paths = sorted(self.image_dir.rglob("*_t1.nii"))
+        return [p for p in paths if p.parent.name in self.id_to_label]
 
     def __len__(self):
         return len(self.image_paths)
 
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
-        label = self.labels[idx]
         image_complete = nib.load(img_path).get_fdata()
-        image = image_complete[:, :, 80]
-        image = (image - image.min()) / (image.max() - image.min())
+        image = image_complete[:, :, BRATS_SURVIVAL_SLICE]
+        denom = (image.max() - image.min()) or 1.0
+        image = (image - image.min()) / denom
         image = Image.fromarray((image * 255).astype(np.uint8)).convert('RGB')
 
         if self.transform:
             image = self.transform(image)
 
-        label = torch.tensor(label, dtype=torch.long)
+        label = torch.tensor(self.labels[idx], dtype=torch.float32)
 
         return image, label
 
 
 class BRATSSliceDataset(Dataset):
-    def __init__(self, image_dir, slices_idx=(111, 120, 131), transform=None):
+    def __init__(self, image_dir, slices_idx=BRATS_SLICE_INDICES, transform=None):
         """
         A PyTorch Dataset for loading selected slices of BRATS MRI scans and
-        classifying them based on the presence of cancer brain cells using segmentation data.
+        classifying them based on the presence of tumor tissue using segmentation data.
+
+        Uses only the t1 modality and a fixed area-share threshold to define a positive
+        (tumor-present) slice. Exposes ``self.groups`` (a per-slice scan id) so that
+        cross-validation can split by patient and avoid slice-level leakage.
 
         Args:
             image_dir (str or Path): Directory where the BRATS MRI scans and segmentation masks are stored.
@@ -291,34 +314,40 @@ class BRATSSliceDataset(Dataset):
             transform (callable, optional): Optional transform to be applied on an image.
         """
         self.image_dir = Path(image_dir)
-        self.slices_idx = slices_idx  # List of specific slice indices
+        self.slices_idx = slices_idx
         self.transform = transform
 
-        # Load the paths of all MRI scans and segmentation masks
-        self.image_paths = sorted(self.image_dir.rglob("*_t1.nii"))
-        self.seg_paths = sorted(self.image_dir.rglob("*_seg.nii"))
-
-        assert len(self.image_paths) == len(self.seg_paths), "Mismatch between scans and segmentation masks"
+        # Pair each scan with its segmentation by patient directory (robust to ordering/counts),
+        # rather than relying on positional zip of two independently-sorted file lists.
+        scan_by_dir = {p.parent: p for p in self.image_dir.rglob("*_t1.nii")}
+        seg_by_dir = {p.parent: p for p in self.image_dir.rglob("*_seg.nii")}
+        self.scan_seg_pairs = [
+            (scan_by_dir[d], seg_by_dir[d]) for d in sorted(scan_by_dir) if d in seg_by_dir
+        ]
 
         # Generate slice-level labels
         self.slice_info = self._generate_slice_labels()
-        self.labels = [[1, 0] if label == 0 else [0, 1] for _, _, _, _, label in self.slice_info]
+        self.labels = [[float(info[4])] for info in self.slice_info]
+        # Per-slice scan/patient id so CV can group slices of the same scan together.
+        self.groups = [info[5] for info in self.slice_info]
+        self.num_classes = 1
 
     def _generate_slice_labels(self):
         """
         Generate labels for selected slices based on segmentation data.
 
         Returns:
-            List[Tuple[Path, Path, int, int]]: A list where each item contains
+            List[Tuple[Path, Path, int, float, int, int]]: per item
                 - Path to the MRI scan file
                 - Path to the segmentation mask file
                 - Slice index
-                - Label (1 for cancer, 0 for no cancer)
+                - Tumor area share
+                - Label (1 tumor present, 0 absent)
+                - Scan/patient group id
         """
         slice_info = []
 
-        for img_path, seg_path in zip(self.image_paths, self.seg_paths):
-            # Load the segmentation mask
+        for scan_idx, (img_path, seg_path) in enumerate(self.scan_seg_pairs):
             segmentation = nib.load(seg_path).get_fdata()
             num_slices = segmentation.shape[2]
 
@@ -327,13 +356,11 @@ class BRATSSliceDataset(Dataset):
                 self.slices_idx if self.slices_idx else list(range(num_slices // 4, 3 * num_slices // 4))
             )
 
-            # Ensure the selected indices are within bounds
             selected_slices = [idx for idx in selected_slices if 0 <= idx < num_slices]
-            # Generate labels for selected slices
             for slice_idx in selected_slices:
-                labeled_area_share = np.round(np.mean(segmentation[:, :, slice_idx] > 0), 8)
-                slice_label = 1 if labeled_area_share > 0.005 else 0
-                slice_info.append((img_path, seg_path, slice_idx, labeled_area_share, slice_label))
+                labeled_area_share = float(np.round(np.mean(segmentation[:, :, slice_idx] > 0), 8))
+                slice_label = 1 if labeled_area_share > BRATS_TUMOR_AREA_THRESHOLD else 0
+                slice_info.append((img_path, seg_path, slice_idx, labeled_area_share, slice_label, scan_idx))
 
         return slice_info
 
@@ -350,7 +377,7 @@ class BRATSSliceDataset(Dataset):
         return len(self.slice_info)
 
     def __getitem__(self, idx):
-        img_path, _, slice_idx, _, _ = self.slice_info[idx]
+        img_path, _, slice_idx, _, _, _ = self.slice_info[idx]
 
         # Load the MRI scan and extract the specific slice
         full_scan = nib.load(img_path).get_fdata()
@@ -365,9 +392,28 @@ class BRATSSliceDataset(Dataset):
             slice_img = self.transform(slice_img)
 
         # Convert the label to a tensor
-        label = torch.tensor(self.labels[idx], dtype=torch.long)
+        label = torch.tensor(self.labels[idx], dtype=torch.float32)
 
         return slice_img, label
+
+
+def resolve_concrete(dataset, idx):
+    """Unwrap nested ``Subset``/``ConcatDataset`` wrappers to the concrete dataset and local index.
+
+    Mirrors ``ConcatDataset.__getitem__``'s index arithmetic so callers can recover the
+    underlying dataset (e.g. ``ImageDatasetCOCO``) and its per-sample metadata after a
+    ``random_split`` or dataset concatenation.
+    """
+    while isinstance(dataset, (Subset, ConcatDataset)):
+        if isinstance(dataset, Subset):
+            idx = dataset.indices[idx]
+            dataset = dataset.dataset
+        else:  # ConcatDataset
+            ds_idx = bisect_right(dataset.cumulative_sizes, idx)
+            if ds_idx > 0:
+                idx -= dataset.cumulative_sizes[ds_idx - 1]
+            dataset = dataset.datasets[ds_idx]
+    return dataset, idx
 
 
 def collate_fn(inputs):
@@ -409,40 +455,16 @@ def create_mask(batch_size, image_size, patch_size, mask_ratio):
     return mask
 
 
-def load_datasets(dateset_type, transform=None):
-    if dateset_type == 'real':
-        train_dataset = ImageDatasetCOCO(
-            annotation_file=SEGMENTED_TRAIN_ANNOTATIONS_PATH,
-            image_dir=SEGMENTED_TRAIN_DATA_DIR,
-            transform=transform
-        )
-        val_dataset = ImageDatasetCOCO(
-            annotation_file=SEGMENTED_VAL_ANNOTATIONS_PATH,
-            image_dir=SEGMENTED_VAL_DATA_DIR,
-            transform=transform
-        )
-        test_dataset = ImageDatasetCOCO(
-            annotation_file=SEGMENTED_TEST_ANNOTATIONS_PATH,
-            image_dir=SEGMENTED_TEST_DATA_DIR,
-            transform=transform
-        )
-        val_dataset = val_dataset + test_dataset
-    elif dateset_type == 'synthetic':
-        # Load the dataset and split into train and validation sets
-        train_dataset = MultiLabelImageDataset(
-            image_dir=SYNTHETIC_TRAIN_DATA_DIR,
-            labels_file=SYNTHETIC_TRAIN_LABELS_PATH,
-            transform=transform
-        )
-        val_dataset = MultiLabelImageDataset(
-            image_dir=SYNTHETIC_TEST_DATA_DIR,
-            labels_file=SYNTHETIC_TEST_LABELS_PATH,
-            transform=transform
-        )
-        val_size = int(0.1 * len(val_dataset))
-        remaining_size = len(val_dataset) - val_size
-        val_dataset, _ = random_split(val_dataset, [val_size, remaining_size])
-    else:
-        raise ValueError(f'Unknown dataset type: {dateset_type}.')
+def get_masked_images(images, patch_size, mask_ratio=MASK_RATIO):
+    """Randomly mask whole patches of a batch for masked-image-modeling.
 
-    return train_dataset, val_dataset
+    Returns ``(masked_images, mask)`` where ``mask`` is a boolean tensor that is True for
+    KEPT (visible) pixels and False for masked ones. Masked pixels are filled with 0.0 —
+    the post-ImageNet-normalization mean — so the fill matches the encoder's input space.
+    Shared by train.py and eval_clf.py so the masking can never silently diverge.
+    """
+    batch_size, _, height, _ = images.shape
+    mask = create_mask(batch_size, height, patch_size, mask_ratio).to(images.device)
+    masked_images = images.clone()
+    masked_images[~mask] = 0.0
+    return masked_images, mask

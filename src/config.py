@@ -61,6 +61,22 @@ MMD_WEIGHT = 0.01
 MASK_RATIO = 0.25
 MIM_WEIGHT = 0.1
 
+# ImageNet statistics. The DINO ViT backbone was pretrained on ImageNet-normalized
+# inputs, so we normalize with these before the encoder. The MIM head reconstructs in
+# this same (normalized) space, and masked pixels are filled with 0.0 (the post-norm mean).
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+# Cross-validation / evaluation protocol
+N_SPLITS = 5
+TEST_FRAC = 0.2
+
+# BRATS labeling / slicing (made explicit instead of buried magic numbers)
+BRATS_SURVIVAL_THRESHOLD_DAYS = 730   # 2-year survival binarization threshold
+BRATS_SURVIVAL_SLICE = 80             # axial slice index used for the survival task
+BRATS_SLICE_INDICES = (111, 120, 131)  # slices used for the tumor-presence task
+BRATS_TUMOR_AREA_THRESHOLD = 0.005    # min tumor area share for a positive slice label
+
 OOD_CATEGORIES = ['RESTORATION', 'CROWN', 'CROWN AND BRIDGE', 'IMPLANT']
 ALTERNATIVE_OOD_CATEGORIES = [
     'ROOT CANAL TREATED TOOTH',
@@ -77,6 +93,8 @@ ULTRASOUND_LABELS_MAPPING = {
     'ПАТОЛОГИЯ': 1,
 }
 
+# Trained-run identifiers, resolved from the environment (see .env.example).
+# Only the run ids actually consumed by utils.get_model_run_id are declared here.
 RUN_ID_MIM_REAL_L1 = os.getenv('RUN_ID_MIM_REAL_L1')
 RUN_ID_MIM_REAL_MSE = os.getenv('RUN_ID_MIM_REAL_MSE')
 RUN_ID_MIM_REAL_SMOOTH_L1 = os.getenv('RUN_ID_MIM_REAL_SMOOTH_L1')
@@ -85,24 +103,11 @@ RUN_ID_MIM_REAL_TUKEY = os.getenv('RUN_ID_MIM_REAL_TUKEY')
 RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED = os.getenv('RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED')
 
 RUN_ID_CLASS_REAL_MSE = os.getenv('RUN_ID_CLASS_REAL_MSE')
-RUN_ID_CLASS_REAL_L1 = os.getenv('RUN_ID_CLASS_REAL_L1')
-RUN_ID_CLASS_REAL_SMOOTH_L1 = os.getenv('RUN_ID_CLASS_REAL_SMOOTH_L1')
-RUN_ID_CLASS_REAL_HUBER = os.getenv('RUN_ID_CLASS_REAL_HUBER')
-RUN_ID_CLASS_REAL_TUKEY = os.getenv('RUN_ID_CLASS_REAL_TUKEY')
 
 RUN_ID_REAL_MULTITASK = os.getenv('RUN_ID_REAL_MULTITASK')
 
-RUN_ID_MIM_ULTRASOUND_L1 = os.getenv('RUN_ID_MIM_ULTRASOUND_L1')
 RUN_ID_MIM_ULTRASOUND_MSE = os.getenv('RUN_ID_MIM_ULTRASOUND_MSE')
-RUN_ID_MIM_ULTRASOUND_SMOOTH_L1 = os.getenv('RUN_ID_MIM_ULTRASOUND_SMOOTH_L1')
-RUN_ID_MIM_ULTRASOUND_HUBER = os.getenv('RUN_ID_MIM_ULTRASOUND_HUBER')
-RUN_ID_MIM_ULTRASOUND_TUKEY = os.getenv('RUN_ID_MIM_ULTRASOUND_TUKEY')
 
-RUN_ID_CLASS_ULTRASOUND_L1 = os.getenv('RUN_ID_CLASS_ULTRASOUND_L1')
-RUN_ID_CLASS_ULTRASOUND_MSE = os.getenv('RUN_ID_CLASS_ULTRASOUND_MSE')
-RUN_ID_CLASS_ULTRASOUND_SMOOTH_L1 = os.getenv('RUN_ID_CLASS_ULTRASOUND_SMOOTH_L1')
-RUN_ID_CLASS_ULTRASOUND_HUBER = os.getenv('RUN_ID_CLASS_ULTRASOUND_HUBER')
-RUN_ID_CLASS_ULTRASOUND_TUKEY = os.getenv('RUN_ID_CLASS_ULTRASOUND_TUKEY')
 RUN_ID_CLASS_ULTRASOUND = os.getenv('RUN_ID_CLASS_ULTRASOUND')
 
 RUN_ID_ULTRASOUND_MULTITASK = os.getenv('RUN_ID_ULTRASOUND_MULTITASK')
