@@ -1,8 +1,8 @@
+from PIL import Image
 import cv2
 import numpy as np
-import torch
-from PIL import Image
 from sklearn.cluster import KMeans
+import torch
 from torch.nn import functional as F
 from torchvision import transforms
 
@@ -10,21 +10,25 @@ from src.config import FIGURES_DIR, IMAGENET_MEAN, IMAGENET_STD, RAW_DATA_DIR
 
 
 class DINOv2Segmentation:
-    def __init__(self, model_name='dinov2_vits14'):
+    def __init__(self, model_name="dinov2_vits14"):
         """
         Initialize the DINOv2 segmentation class.
 
         Args:
             model_name (str): Name of the DINOv2 model to load.
         """
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self._load_model(model_name)
         self.features = None
-        self.preprocess = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),  # DINOv2 expects ImageNet norm
-        ])
+        self.preprocess = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=IMAGENET_MEAN, std=IMAGENET_STD
+                ),  # DINOv2 expects ImageNet norm
+            ]
+        )
         self._register_hook()
 
     def _load_model(self, model_name):
@@ -37,7 +41,9 @@ class DINOv2Segmentation:
         Returns:
             torch.nn.Module: Loaded DINOv2 model.
         """
-        model = torch.hub.load('facebookresearch/dinov2', model_name, source='github').to(self.device)
+        model = torch.hub.load("facebookresearch/dinov2", model_name, source="github").to(
+            self.device
+        )
         model.eval()
         return model
 
@@ -45,12 +51,13 @@ class DINOv2Segmentation:
         """
         Register a forward hook to capture intermediate outputs from the model.
         """
+
         def hook_fn(module, input, output):
             self.features = output
 
         # Hook into the attention layer of the last block
         for name, module in self.model.named_modules():
-            if name.endswith('blocks.11.attn'):
+            if name.endswith("blocks.11.attn"):
                 module.register_forward_hook(hook_fn)
                 break
         else:
@@ -74,7 +81,9 @@ class DINOv2Segmentation:
             _ = self.model(image_tensor)
 
         if self.features is None:
-            raise RuntimeError('Features were not captured. Ensure the hook is correctly registered.')
+            raise RuntimeError(
+                "Features were not captured. Ensure the hook is correctly registered."
+            )
 
         features = self.features.squeeze(0)  # Remove batch dimension
 
@@ -84,12 +93,16 @@ class DINOv2Segmentation:
 
         # Ensure valid square number of patches
         num_patches = int(features.size(0) ** 0.5)
-        if num_patches ** 2 != features.size(0):
-            raise ValueError(f'Invalid number of patches: {features.size(0)}. Expected a square number.')
+        if num_patches**2 != features.size(0):
+            raise ValueError(
+                f"Invalid number of patches: {features.size(0)}. Expected a square number."
+            )
 
         # Reshape to (C, H, W) and interpolate to image size
         features = features.view(num_patches, num_patches, -1).permute(2, 0, 1)
-        features = F.interpolate(features.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)
+        features = F.interpolate(
+            features.unsqueeze(0), size=(224, 224), mode="bilinear", align_corners=False
+        )
         return features.squeeze(0).cpu().numpy()
 
     def segment_image(self, image_path: str, num_clusters: int = 5):
@@ -103,7 +116,7 @@ class DINOv2Segmentation:
         Returns:
             np.ndarray: Segmentation labels resized to the original image size.
         """
-        image = Image.open(image_path).convert('RGB')
+        image = Image.open(image_path).convert("RGB")
         features = self._extract_features(image)
 
         # Flatten features for clustering
@@ -111,12 +124,14 @@ class DINOv2Segmentation:
         features_flat = features.reshape(features.shape[0], h * w).T
 
         # Apply k-means clustering
-        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init='auto').fit(features_flat)
+        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init="auto").fit(features_flat)
         labels = kmeans.labels_.reshape(h, w)
 
         # Resize labels to match original image dimensions
         original_size = image.size
-        labels_resized = cv2.resize(labels.astype(np.float32), original_size, interpolation=cv2.INTER_NEAREST)
+        labels_resized = cv2.resize(
+            labels.astype(np.float32), original_size, interpolation=cv2.INTER_NEAREST
+        )
         return labels_resized.astype(int)
 
     def visualize_segmentation(self, image_path: str, labels: np.ndarray):
@@ -133,7 +148,7 @@ class DINOv2Segmentation:
         # Load the original image
         image = cv2.imread(image_path)
         if image is None:
-            raise FileNotFoundError(f'Image not found at {image_path}.')
+            raise FileNotFoundError(f"Image not found at {image_path}.")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         # Generate random colors for each cluster
@@ -150,17 +165,17 @@ class DINOv2Segmentation:
 
 def main():
     segmenter = DINOv2Segmentation()
-    image_path = RAW_DATA_DIR / 'synthetic' / 'train' / 'train_image_1.png'
-    segmented_image_path = FIGURES_DIR / 'segmented_image.png'
+    image_path = RAW_DATA_DIR / "synthetic" / "train" / "train_image_1.png"
+    segmented_image_path = FIGURES_DIR / "segmented_image.png"
 
     try:
         labels = segmenter.segment_image(image_path, num_clusters=5)
         segmented_image = segmenter.visualize_segmentation(image_path, labels)
         Image.fromarray(segmented_image).save(segmented_image_path)
-        print(f'Segmentation completed and saved as {segmented_image_path}.')
+        print(f"Segmentation completed and saved as {segmented_image_path}.")
     except Exception as e:
-        print(f'Error: {e}')
+        print(f"Error: {e}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

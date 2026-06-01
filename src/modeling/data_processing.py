@@ -1,22 +1,25 @@
-import os
 from bisect import bisect_right
+import os
 from pathlib import Path
 
+from PIL import Image
+from loguru import logger
 import nibabel as nib
 import numpy as np
 import pandas as pd
-import torch
-from PIL import Image
 from pycocotools.coco import COCO
+import torch
 from torch import nn
 from torch.utils.data import ConcatDataset, Dataset, Subset
 
-from loguru import logger
-
-from src.config import (BRATS_SLICE_INDICES, BRATS_SURVIVAL_SLICE,
-                        BRATS_SURVIVAL_THRESHOLD_DAYS,
-                        BRATS_TUMOR_AREA_THRESHOLD, MASK_RATIO,
-                        TARGET_CATEGORIES)
+from src.config import (
+    BRATS_SLICE_INDICES,
+    BRATS_SURVIVAL_SLICE,
+    BRATS_SURVIVAL_THRESHOLD_DAYS,
+    BRATS_TUMOR_AREA_THRESHOLD,
+    MASK_RATIO,
+    TARGET_CATEGORIES,
+)
 
 
 class MultiLabelImageDataset(Dataset):
@@ -25,22 +28,24 @@ class MultiLabelImageDataset(Dataset):
         self.transform = transform
 
         # Load the labels
-        if labels_file.endswith('.csv'):
+        if labels_file.endswith(".csv"):
             self.labels = pd.read_csv(labels_file)
-        elif labels_file.endswith('.parquet'):
+        elif labels_file.endswith(".parquet"):
             self.labels = pd.read_parquet(labels_file)
         else:
             raise ValueError("Labels file must be either a CSV or Parquet file.")
 
-        self.target_categories = self.labels.drop(columns='image_name').columns.to_list()
+        self.target_categories = self.labels.drop(columns="image_name").columns.to_list()
 
         # Ensure image paths are valid
-        self.image_paths = [os.path.join(image_dir, filename)
-                            for filename in self.labels['image_name']
-                            if filename.endswith(('jpg', 'jpeg', 'png', 'bmp', 'tiff'))]
+        self.image_paths = [
+            os.path.join(image_dir, filename)
+            for filename in self.labels["image_name"]
+            if filename.endswith(("jpg", "jpeg", "png", "bmp", "tiff"))
+        ]
 
         # Create a dictionary for fast lookup of image labels using image_name as key
-        self.labels_dict = self.labels.set_index('image_name').to_dict('index')
+        self.labels_dict = self.labels.set_index("image_name").to_dict("index")
 
     def __len__(self):
         return len(self.image_paths)
@@ -49,7 +54,7 @@ class MultiLabelImageDataset(Dataset):
         # Load the image
         img_path = self.image_paths[idx]
         image_name = os.path.basename(img_path)
-        image = Image.open(img_path).convert('RGB')
+        image = Image.open(img_path).convert("RGB")
 
         # Apply transformations if provided
         if self.transform:
@@ -57,14 +62,22 @@ class MultiLabelImageDataset(Dataset):
 
         # Fetch the corresponding labels (circle, square, triangle) for the given image_name
         labels_dict = self.labels_dict[image_name]
-        labels = torch.tensor([labels_dict[c] for c in self.target_categories],
-                              dtype=torch.float32)
+        labels = torch.tensor(
+            [labels_dict[c] for c in self.target_categories], dtype=torch.float32
+        )
 
         return image, labels
 
 
 class ImageDatasetCOCO(Dataset):
-    def __init__(self, annotation_file, image_dir, transform=None, exclude_categories=None, include_categories=None):
+    def __init__(
+        self,
+        annotation_file,
+        image_dir,
+        transform=None,
+        exclude_categories=None,
+        include_categories=None,
+    ):
         """
         A PyTorch Dataset for loading COCO data with compatibility for ImageDataset.
 
@@ -81,14 +94,31 @@ class ImageDatasetCOCO(Dataset):
         self.target_categories = TARGET_CATEGORIES
 
         # Map TARGET_CATEGORIES to category IDs
-        self.category_to_id = {cat['name']: cat['id'] for cat in self.coco.cats.values() if
-                               cat['name'] in self.target_categories}
+        self.category_to_id = {
+            cat["name"]: cat["id"]
+            for cat in self.coco.cats.values()
+            if cat["name"] in self.target_categories
+        }
 
         # Map exclude and include categories to their IDs
-        self.exclude_category_ids = {cat['name']: cat['id'] for cat in self.coco.cats.values() if
-                                     cat['name'] in exclude_categories} if exclude_categories else {}
-        self.include_category_ids = {cat['name']: cat['id'] for cat in self.coco.cats.values() if
-                                     cat['name'] in include_categories} if include_categories else {}
+        self.exclude_category_ids = (
+            {
+                cat["name"]: cat["id"]
+                for cat in self.coco.cats.values()
+                if cat["name"] in exclude_categories
+            }
+            if exclude_categories
+            else {}
+        )
+        self.include_category_ids = (
+            {
+                cat["name"]: cat["id"]
+                for cat in self.coco.cats.values()
+                if cat["name"] in include_categories
+            }
+            if include_categories
+            else {}
+        )
 
         # Filter images based on excluded and included categories
         self.image_ids = self.filter_images()
@@ -107,13 +137,17 @@ class ImageDatasetCOCO(Dataset):
             anns = self.coco.loadAnns(ann_ids)
 
             # Check if any excluded categories are present
-            exclude_present = any(ann['category_id'] in self.exclude_category_ids.values() for ann in anns)
+            exclude_present = any(
+                ann["category_id"] in self.exclude_category_ids.values() for ann in anns
+            )
             if exclude_present:
                 continue
 
             # Check if any included categories are present (if include_categories is provided)
             if self.include_category_ids:
-                include_present = any(ann['category_id'] in self.include_category_ids.values() for ann in anns)
+                include_present = any(
+                    ann["category_id"] in self.include_category_ids.values() for ann in anns
+                )
                 if not include_present:
                     continue
 
@@ -133,7 +167,7 @@ class ImageDatasetCOCO(Dataset):
             annotations = self.coco.loadAnns(annotation_ids)
 
             for ann in annotations:
-                category_name = self.coco.loadCats(ann['category_id'])[0]['name']
+                category_name = self.coco.loadCats(ann["category_id"])[0]["name"]
                 if category_name in self.target_categories:
                     label[self.target_categories.index(category_name)] = 1.0
 
@@ -145,7 +179,7 @@ class ImageDatasetCOCO(Dataset):
         image_id = self.image_ids[idx]
         annotation_ids = self.coco.getAnnIds(imgIds=image_id, iscrowd=False)
         annotations = self.coco.loadAnns(annotation_ids)
-        return {self.coco.loadCats(ann['category_id'])[0]['name'] for ann in annotations}
+        return {self.coco.loadCats(ann["category_id"])[0]["name"] for ann in annotations}
 
     def __len__(self):
         return len(self.image_ids)
@@ -161,10 +195,10 @@ class ImageDatasetCOCO(Dataset):
             tuple: (image, label)
         """
         image_info = self.coco.loadImgs(self.image_ids[idx])[0]
-        img_path = self.image_dir / image_info['file_name']
+        img_path = self.image_dir / image_info["file_name"]
 
         # Open and transform the image
-        image = Image.open(img_path).convert('RGB')
+        image = Image.open(img_path).convert("RGB")
         if self.transform:
             image = self.transform(image)
 
@@ -223,7 +257,7 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
-        image = Image.open(img_path).convert('RGB')
+        image = Image.open(img_path).convert("RGB")
 
         # Apply transformations if provided
         if self.transform:
@@ -262,17 +296,17 @@ class ImageDatasetBrats(Dataset):
         survived-beyond-2-years target and are excluded rather than mislabeled.
         """
         df = pd.read_csv(self.info_path)
-        days = pd.to_numeric(df['Survival_days'], errors='coerce')
-        valid = df.loc[days.notna(), ['Brats20ID']].copy()
-        valid['days'] = days[days.notna()]
+        days = pd.to_numeric(df["Survival_days"], errors="coerce")
+        valid = df.loc[days.notna(), ["Brats20ID"]].copy()
+        valid["days"] = days[days.notna()]
         dropped = len(df) - len(valid)
         if dropped:
             logger.warning(
                 f"ImageDatasetBrats: dropped {dropped} censored/non-numeric Survival_days "
                 f"row(s) that cannot be labeled for {BRATS_SURVIVAL_THRESHOLD_DAYS}-day survival"
             )
-        labels = (valid['days'] > BRATS_SURVIVAL_THRESHOLD_DAYS).astype(int)
-        return dict(zip(valid['Brats20ID'], labels))
+        labels = (valid["days"] > BRATS_SURVIVAL_THRESHOLD_DAYS).astype(int)
+        return dict(zip(valid["Brats20ID"], labels))
 
     def _load_image_paths(self):
         """Gather t1 scans whose patient has a usable (non-censored) survival label."""
@@ -288,7 +322,7 @@ class ImageDatasetBrats(Dataset):
         image = image_complete[:, :, BRATS_SURVIVAL_SLICE]
         denom = (image.max() - image.min()) or 1.0
         image = (image - image.min()) / denom
-        image = Image.fromarray((image * 255).astype(np.uint8)).convert('RGB')
+        image = Image.fromarray((image * 255).astype(np.uint8)).convert("RGB")
 
         if self.transform:
             image = self.transform(image)
@@ -353,14 +387,18 @@ class BRATSSliceDataset(Dataset):
 
             # If slices_idx is not provided, default to selecting middle slices
             selected_slices = (
-                self.slices_idx if self.slices_idx else list(range(num_slices // 4, 3 * num_slices // 4))
+                self.slices_idx
+                if self.slices_idx
+                else list(range(num_slices // 4, 3 * num_slices // 4))
             )
 
             selected_slices = [idx for idx in selected_slices if 0 <= idx < num_slices]
             for slice_idx in selected_slices:
                 labeled_area_share = float(np.round(np.mean(segmentation[:, :, slice_idx] > 0), 8))
                 slice_label = 1 if labeled_area_share > BRATS_TUMOR_AREA_THRESHOLD else 0
-                slice_info.append((img_path, seg_path, slice_idx, labeled_area_share, slice_label, scan_idx))
+                slice_info.append(
+                    (img_path, seg_path, slice_idx, labeled_area_share, slice_label, scan_idx)
+                )
 
         return slice_info
 
@@ -385,7 +423,7 @@ class BRATSSliceDataset(Dataset):
 
         # Convert the slice to an image
         slice_data_norm = self._normalize_image(slice_data)
-        slice_img = Image.fromarray((slice_data_norm * 255).astype(np.uint8)).convert('RGB')
+        slice_img = Image.fromarray((slice_data_norm * 255).astype(np.uint8)).convert("RGB")
 
         # Apply transformations if specified
         if self.transform:
@@ -419,10 +457,7 @@ def resolve_concrete(dataset, idx):
 def collate_fn(inputs):
     """Custom collate function for batching."""
     images, labels = zip(*inputs)
-    return {
-        'pixel_values': torch.stack(images, dim=0),
-        'labels': torch.stack(labels, dim=0)
-    }
+    return {"pixel_values": torch.stack(images, dim=0), "labels": torch.stack(labels, dim=0)}
 
 
 def create_mask(batch_size, image_size, patch_size, mask_ratio):
@@ -431,7 +466,7 @@ def create_mask(batch_size, image_size, patch_size, mask_ratio):
     """
     # Calculate the number of patches based on the image size and patch size
     num_patches_per_dim = image_size // patch_size
-    num_patches = num_patches_per_dim ** 2  # Total number of patches in the image
+    num_patches = num_patches_per_dim**2  # Total number of patches in the image
 
     # Initialize the mask to all ones (unmasked)
     mask = torch.ones(batch_size, num_patches, dtype=torch.bool)
@@ -444,7 +479,9 @@ def create_mask(batch_size, image_size, patch_size, mask_ratio):
         mask[i, torch.randperm(num_patches)[:num_masked]] = False
 
     # Reshape the mask to match the patch grid dimensions (num_patches_per_dim x num_patches_per_dim)
-    mask = mask.view(batch_size, num_patches_per_dim, num_patches_per_dim)  # [batch_size, h_patches, w_patches]
+    mask = mask.view(
+        batch_size, num_patches_per_dim, num_patches_per_dim
+    )  # [batch_size, h_patches, w_patches]
 
     # Expand the mask to have a channel dimension, simulating a 3-channel RGB mask
     mask = mask.unsqueeze(1).expand(-1, 3, -1, -1)  # [batch_size, 3, h_patches, w_patches]

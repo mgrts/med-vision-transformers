@@ -1,33 +1,47 @@
 import os
 
+from loguru import logger
 import matplotlib.pyplot as plt
 import torch
-import torchvision
-import typer
-from loguru import logger
 from torch import nn
+import torchvision
 from transformers import AutoModel
+import typer
 
-from src.config import (BASE_MODEL_NAME, BRATS_TRAIN_DATA_DIR,
-                        BRATS_TRAIN_SURVIVAL_INFO_PATH, FIGURES_DIR,
-                        IMAGE_SIZE, MASK_RATIO, MODELS_DIR,
-                        SEGMENTED_TRAIN_ANNOTATIONS_PATH,
-                        SEGMENTED_TRAIN_DATA_DIR, ULTRASOUND_DATA_DIR)
-from src.modeling.data_processing import (ImageDataset, ImageDatasetBrats,
-                                          ImageDatasetCOCO, create_mask)
+from src.config import (
+    BASE_MODEL_NAME,
+    BRATS_TRAIN_DATA_DIR,
+    BRATS_TRAIN_SURVIVAL_INFO_PATH,
+    FIGURES_DIR,
+    IMAGE_SIZE,
+    MASK_RATIO,
+    MODELS_DIR,
+    SEGMENTED_TRAIN_ANNOTATIONS_PATH,
+    SEGMENTED_TRAIN_DATA_DIR,
+    ULTRASOUND_DATA_DIR,
+)
+from src.modeling.data_processing import (
+    ImageDataset,
+    ImageDatasetBrats,
+    ImageDatasetCOCO,
+    create_mask,
+)
 from src.modeling.models import MIMTransformer, MultiTaskTransformer
-from src.modeling.utils import (DEVICE, EVAL_TRANSFORM, denormalize,
-                                get_model_run_id)
+from src.modeling.utils import DEVICE, EVAL_TRANSFORM, denormalize, get_model_run_id
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
-def load_dino_model(model_load_path, model_name='facebook/dino-vits8'):
+def load_dino_model(model_load_path, model_name="facebook/dino-vits8"):
     """
     Load a pretrained DINO model without the MIM head for attention visualization.
     """
-    model = AutoModel.from_pretrained(model_name, add_pooling_layer=False, attn_implementation='eager')
-    model.load_state_dict(torch.load(model_load_path, map_location=DEVICE))  # Load weights from model_load_path
+    model = AutoModel.from_pretrained(
+        model_name, add_pooling_layer=False, attn_implementation="eager"
+    )
+    model.load_state_dict(
+        torch.load(model_load_path, map_location=DEVICE)
+    )  # Load weights from model_load_path
     return model
 
 
@@ -36,7 +50,9 @@ def load_mim_model(dino_model, mim_model_load_path):
     Create and load a MIM model by combining the DINO model with a MIM head.
     """
     model = MIMTransformer(base_model=dino_model)
-    model.load_state_dict(torch.load(mim_model_load_path, map_location=DEVICE))  # Load the MIM head weights
+    model.load_state_dict(
+        torch.load(mim_model_load_path, map_location=DEVICE)
+    )  # Load the MIM head weights
     return model
 
 
@@ -56,21 +72,20 @@ def visualize_attention_maps(pixel_values, model, output_dir):
 
     attentions = attentions.reshape(nh, w_featmap, h_featmap)
     attentions = nn.functional.interpolate(
-        attentions.unsqueeze(0), scale_factor=model.config.patch_size, mode='nearest'
+        attentions.unsqueeze(0), scale_factor=model.config.patch_size, mode="nearest"
     )[0].cpu()
 
     # Save attention maps
     for j in range(nh):
-        fname = os.path.join(output_dir, f'attn-head-{j}.png')
+        fname = os.path.join(output_dir, f"attn-head-{j}.png")
         plt.figure()
         plt.imshow(attentions[j].detach().numpy())
-        plt.imsave(fname=fname, arr=attentions[j].detach().numpy(), format='png')
-        logger.info(f'{fname} saved.')
+        plt.imsave(fname=fname, arr=attentions[j].detach().numpy(), format="png")
+        logger.info(f"{fname} saved.")
 
 
 @app.command()
-def main(model_type: str = 'BRATS_MIM_MSE',
-         image_id: int = 0):
+def main(model_type: str = "BRATS_MIM_MSE", image_id: int = 0):
     """
     Evaluate the MIM model by visualizing attention maps for a sample image.
     Also save the initial, masked, and restored images.
@@ -79,58 +94,51 @@ def main(model_type: str = 'BRATS_MIM_MSE',
 
     run_id = get_model_run_id(model_type)
 
-    model_load_path = MODELS_DIR / run_id / 'base_model.pth'
-    mim_model_load_path = MODELS_DIR / run_id / 'model.pth'
+    model_load_path = MODELS_DIR / run_id / "base_model.pth"
+    mim_model_load_path = MODELS_DIR / run_id / "model.pth"
 
     # Load dataset
-    if model_type == 'ULTRASOUND':
-        dataset = ImageDataset(
-            image_dir=ULTRASOUND_DATA_DIR,
-            transform=EVAL_TRANSFORM
-        )
-    elif model_type == 'ULTRASOUND_CLASS':
-        dataset = ImageDataset(
-            image_dir=ULTRASOUND_DATA_DIR,
-            transform=EVAL_TRANSFORM
-        )
-    elif model_type == 'ULTRASOUND_MULTITASK':
-        dataset = ImageDataset(
-            image_dir=ULTRASOUND_DATA_DIR,
-            transform=EVAL_TRANSFORM
-        )
-    elif model_type == 'REAL_MULTITASK':
+    if model_type == "ULTRASOUND":
+        dataset = ImageDataset(image_dir=ULTRASOUND_DATA_DIR, transform=EVAL_TRANSFORM)
+    elif model_type == "ULTRASOUND_CLASS":
+        dataset = ImageDataset(image_dir=ULTRASOUND_DATA_DIR, transform=EVAL_TRANSFORM)
+    elif model_type == "ULTRASOUND_MULTITASK":
+        dataset = ImageDataset(image_dir=ULTRASOUND_DATA_DIR, transform=EVAL_TRANSFORM)
+    elif model_type == "REAL_MULTITASK":
         dataset = ImageDatasetCOCO(
             annotation_file=SEGMENTED_TRAIN_ANNOTATIONS_PATH,
             image_dir=SEGMENTED_TRAIN_DATA_DIR,
-            transform=EVAL_TRANSFORM
+            transform=EVAL_TRANSFORM,
         )
-    elif model_type == 'REAL_CLASS_MSE':
+    elif model_type == "REAL_CLASS_MSE":
         dataset = ImageDatasetCOCO(
             annotation_file=SEGMENTED_TRAIN_ANNOTATIONS_PATH,
             image_dir=SEGMENTED_TRAIN_DATA_DIR,
-            transform=EVAL_TRANSFORM
+            transform=EVAL_TRANSFORM,
         )
-    elif model_type == 'BRATS_MIM_MSE':
+    elif model_type == "BRATS_MIM_MSE":
         dataset = ImageDatasetBrats(
             image_dir=BRATS_TRAIN_DATA_DIR,
             info_path=BRATS_TRAIN_SURVIVAL_INFO_PATH,
-            transform=EVAL_TRANSFORM
+            transform=EVAL_TRANSFORM,
         )
     else:
         dataset = ImageDatasetCOCO(
             annotation_file=SEGMENTED_TRAIN_ANNOTATIONS_PATH,
             image_dir=SEGMENTED_TRAIN_DATA_DIR,
-            transform=EVAL_TRANSFORM
+            transform=EVAL_TRANSFORM,
         )
 
     pixel_values = dataset[image_id][0].unsqueeze(0).to(DEVICE)
 
     base_model = AutoModel.from_pretrained(
-        BASE_MODEL_NAME, add_pooling_layer=False, attn_implementation='eager'
+        BASE_MODEL_NAME, add_pooling_layer=False, attn_implementation="eager"
     )
 
-    if 'MULTITASK' in model_type:
-        mt_model = MultiTaskTransformer(base_model=base_model, image_size=IMAGE_SIZE, num_classes=1)
+    if "MULTITASK" in model_type:
+        mt_model = MultiTaskTransformer(
+            base_model=base_model, image_size=IMAGE_SIZE, num_classes=1
+        )
         mt_model.load_state_dict(torch.load(model_load_path, map_location=DEVICE))
 
         dino_model = mt_model.base_model
@@ -163,15 +171,21 @@ def main(model_type: str = 'BRATS_MIM_MSE',
     restored_image = mim_model(masked_image)
 
     # Inputs and the MIM reconstruction live in ImageNet-normalized space; denormalize to [0,1] for saving.
-    torchvision.utils.save_image(denormalize(pixel_values), os.path.join(FIGURES_DIR, 'initial_image.png'))
-    torchvision.utils.save_image(denormalize(masked_image), os.path.join(FIGURES_DIR, 'masked_image.png'))
-    torchvision.utils.save_image(denormalize(restored_image), os.path.join(FIGURES_DIR, 'restored_image.png'))
+    torchvision.utils.save_image(
+        denormalize(pixel_values), os.path.join(FIGURES_DIR, "initial_image.png")
+    )
+    torchvision.utils.save_image(
+        denormalize(masked_image), os.path.join(FIGURES_DIR, "masked_image.png")
+    )
+    torchvision.utils.save_image(
+        denormalize(restored_image), os.path.join(FIGURES_DIR, "restored_image.png")
+    )
 
     # Visualize and save attention maps
     visualize_attention_maps(pixel_values, dino_model, FIGURES_DIR)
 
-    logger.info(f'Evaluation completed. Images and attention maps saved to {FIGURES_DIR}')
+    logger.info(f"Evaluation completed. Images and attention maps saved to {FIGURES_DIR}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app()

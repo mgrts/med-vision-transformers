@@ -1,7 +1,7 @@
+from loguru import logger
 import mlflow
 import numpy as np
 import typer
-from loguru import logger
 
 from src.config import TRACKING_URI
 from src.modeling.utils import confidence_interval
@@ -11,9 +11,7 @@ app = typer.Typer(pretty_exceptions_show_locals=False)
 
 @app.command()
 def calculate_confidence_interval(
-        metric: str = 'roc_auc_score',
-        tracking_uri: str = TRACKING_URI,
-        parent_run_id: str = ''
+    metric: str = "roc_auc_score", tracking_uri: str = TRACKING_URI, parent_run_id: str = ""
 ):
     """
     Calculate a t-based 95% confidence interval for a metric across all nested runs of a parent MLflow run.
@@ -51,12 +49,12 @@ def calculate_confidence_interval(
     mean, lower_bound, upper_bound = confidence_interval(metric_values)
 
     # Print the results
-    logger.info(f'Parent Run ID: {parent_run_id}')
-    logger.info(f'Metric: {metric}')
-    logger.info(f'Metric Values: {metric_values}')
-    logger.info(f'Mean {metric}: {mean:.4f}')
-    logger.info(f'95% Confidence Interval: [{lower_bound:.4f}, {upper_bound:.4f}]')
+    logger.info(f"Parent Run ID: {parent_run_id}")
+    logger.info(f"Metric: {metric}")
+    logger.info(f"Metric Values: {metric_values}")
+    logger.info(f"Mean {metric}: {mean:.4f}")
+    logger.info(f"95% Confidence Interval: [{lower_bound:.4f}, {upper_bound:.4f}]")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app()

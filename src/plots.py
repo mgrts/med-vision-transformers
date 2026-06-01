@@ -1,15 +1,14 @@
 import os
 from pathlib import Path
 
+from PIL import Image
+from loguru import logger
 import matplotlib.pyplot as plt
 import numpy as np
-import typer
-from loguru import logger
-from PIL import Image
 from pycocotools.coco import COCO
+import typer
 
-from src.config import (FIGURES_DIR, SEGMENTED_TRAIN_ANNOTATIONS_PATH,
-                        SEGMENTED_TRAIN_DATA_DIR)
+from src.config import FIGURES_DIR, SEGMENTED_TRAIN_ANNOTATIONS_PATH, SEGMENTED_TRAIN_DATA_DIR
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
@@ -19,36 +18,38 @@ def create_caries_mask(coco, image_info, category_ids):
     Create a mask and bounding box overlays for the CARIES category on a COCO image.
     """
     # Load annotations for the image
-    annotation_ids = coco.getAnnIds(imgIds=image_info['id'], catIds=category_ids)
+    annotation_ids = coco.getAnnIds(imgIds=image_info["id"], catIds=category_ids)
     annotations = coco.loadAnns(annotation_ids)
 
     # Create a blank mask for overlay
-    mask = np.zeros((image_info['height'], image_info['width']))
+    mask = np.zeros((image_info["height"], image_info["width"]))
 
-    plt.imshow(Image.open(image_info['file_name']).convert('RGB'))
-    plt.axis('off')
+    plt.imshow(Image.open(image_info["file_name"]).convert("RGB"))
+    plt.axis("off")
 
     for annotation in annotations:
         # For segmentation masks
-        if 'segmentation' in annotation:
+        if "segmentation" in annotation:
             m = coco.annToMask(annotation)
             mask = np.maximum(mask, m)
 
         # For bounding boxes
-        if 'bbox' in annotation:
-            x, y, w, h = annotation['bbox']
-            plt.gca().add_patch(plt.Rectangle((x, y), w, h, fill=False, edgecolor='red', linewidth=2))
+        if "bbox" in annotation:
+            x, y, w, h = annotation["bbox"]
+            plt.gca().add_patch(
+                plt.Rectangle((x, y), w, h, fill=False, edgecolor="red", linewidth=2)
+            )
 
-    plt.imshow(mask, alpha=0.5, cmap='jet')
+    plt.imshow(mask, alpha=0.5, cmap="jet")
 
 
 @app.command()
 def main(
-        coco_annotation_file: Path = SEGMENTED_TRAIN_ANNOTATIONS_PATH,
-        image_dir: Path = SEGMENTED_TRAIN_DATA_DIR,
-        output_dir: Path = FIGURES_DIR,
-        target_category: str = 'CARIES',
-        max_images: int = 2
+    coco_annotation_file: Path = SEGMENTED_TRAIN_ANNOTATIONS_PATH,
+    image_dir: Path = SEGMENTED_TRAIN_DATA_DIR,
+    output_dir: Path = FIGURES_DIR,
+    target_category: str = "CARIES",
+    max_images: int = 2,
 ):
     """
     Highlight a target category in COCO images and save annotated images.
@@ -75,8 +76,8 @@ def main(
             break
 
         image_info = coco.loadImgs(image_id)[0]
-        img_path = image_dir / image_info['file_name']
-        image_info['file_name'] = str(img_path)  # Set the full image path for loading
+        img_path = image_dir / image_info["file_name"]
+        image_info["file_name"] = str(img_path)  # Set the full image path for loading
 
         if not img_path.exists():
             logger.warning(f"Image file {img_path} does not exist. Skipping.")
@@ -86,8 +87,8 @@ def main(
         plt.figure(figsize=(10, 10))
         create_caries_mask(coco, image_info, category_ids)
 
-        output_path = output_dir / f'annotated_image_{image_id}.png'
-        plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
+        output_path = output_dir / f"annotated_image_{image_id}.png"
+        plt.savefig(output_path, bbox_inches="tight", pad_inches=0)
         plt.close()
 
         logger.success(f"Saved annotated image to {output_path}")
@@ -96,5 +97,5 @@ def main(
     logger.info(f"Processed and saved {saved_count} images with category '{target_category}'.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app()

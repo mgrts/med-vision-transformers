@@ -8,7 +8,7 @@ class MIMHead(nn.Module):
         self.patch_size = patch_size
         self.image_size = image_size
         self.num_patches_per_dim = self.image_size // self.patch_size
-        self.num_patches = self.num_patches_per_dim ** 2
+        self.num_patches = self.num_patches_per_dim**2
         self.dropout_rate = dropout_rate
 
         self.decoder = nn.Sequential(
@@ -17,11 +17,13 @@ class MIMHead(nn.Module):
             nn.Dropout(p=self.dropout_rate),
             nn.Conv2d(in_channels=embed_dim * 2, out_channels=embed_dim, kernel_size=3, padding=1),
             nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim // 2, kernel_size=3, padding=1),
+            nn.Conv2d(
+                in_channels=embed_dim, out_channels=embed_dim // 2, kernel_size=3, padding=1
+            ),
             nn.LeakyReLU(negative_slope=0.01, inplace=True),
             nn.Dropout(p=self.dropout_rate),
-            nn.Conv2d(in_channels=embed_dim // 2, out_channels=3 * (patch_size ** 2), kernel_size=1),
-            nn.PixelShuffle(patch_size)
+            nn.Conv2d(in_channels=embed_dim // 2, out_channels=3 * (patch_size**2), kernel_size=1),
+            nn.PixelShuffle(patch_size),
         )
 
     def forward(self, x):
@@ -43,7 +45,9 @@ class MultiLabelClassificationHead(nn.Module):
         self.dropout_rate = dropout_rate
 
         # Convolutional layer to process patch embeddings
-        self.conv = nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=3, padding=1)
+        self.conv = nn.Conv2d(
+            in_channels=embed_dim, out_channels=embed_dim, kernel_size=3, padding=1
+        )
 
         # Global average pooling to aggregate patch features
         self.global_avg_pool = nn.AdaptiveAvgPool2d(1)  # Outputs a single value per channel
@@ -54,7 +58,7 @@ class MultiLabelClassificationHead(nn.Module):
             # nn.ReLU(),  # Activation
             nn.LeakyReLU(negative_slope=0.01, inplace=True),  # Activation
             nn.Dropout(p=self.dropout_rate),  # Add dropout here
-            nn.Linear(128, self.num_classes)  # Output layer based on num_classes
+            nn.Linear(128, self.num_classes),  # Output layer based on num_classes
         )
 
     def forward(self, x):
@@ -65,7 +69,9 @@ class MultiLabelClassificationHead(nn.Module):
         x = x.view(-1, self.num_patches_per_dim, self.num_patches_per_dim, self.embed_dim)
 
         # Permute to match Conv2D input format: [batch_size, embed_dim, num_patches_per_dim, num_patches_per_dim]
-        x = x.permute(0, 3, 1, 2)  # Shape: [batch_size, embed_dim, num_patches_per_dim, num_patches_per_dim]
+        x = x.permute(
+            0, 3, 1, 2
+        )  # Shape: [batch_size, embed_dim, num_patches_per_dim, num_patches_per_dim]
 
         # Apply convolution to capture spatial relationships
         x = self.conv(x)
@@ -90,7 +96,9 @@ class MIMTransformer(nn.Module):
         self.patch_size = self.base_model.config.patch_size
         self.embed_dim = self.base_model.config.hidden_size
         self.dropout_rate = dropout_rate
-        self.mim_head = MIMHead(self.embed_dim, self.image_size, self.patch_size, self.dropout_rate)
+        self.mim_head = MIMHead(
+            self.embed_dim, self.image_size, self.patch_size, self.dropout_rate
+        )
 
     def forward(self, x):
         base_output = self.base_model(x)
@@ -106,9 +114,10 @@ class MultiLabelClassificationTransformer(nn.Module):
         self.dropout_rate = dropout_rate
         self.classification_head = MultiLabelClassificationHead(
             embed_dim=self.embed_dim,
-            num_patches_per_dim=self.base_model.config.image_size // self.base_model.config.patch_size,
+            num_patches_per_dim=self.base_model.config.image_size
+            // self.base_model.config.patch_size,
             num_classes=num_classes,
-            dropout_rate=self.dropout_rate
+            dropout_rate=self.dropout_rate,
         )
 
     def forward(self, x):
@@ -128,7 +137,7 @@ class MultiTaskTransformer(nn.Module):
             embed_dim=self.embed_dim,
             num_patches_per_dim=image_size // self.patch_size,
             num_classes=num_classes,
-            dropout_rate=self.dropout_rate
+            dropout_rate=self.dropout_rate,
         )
         self.mim_head = MIMHead(self.embed_dim, image_size, self.patch_size, self.dropout_rate)
 

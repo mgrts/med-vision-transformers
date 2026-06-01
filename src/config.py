@@ -9,46 +9,46 @@ load_dotenv()
 
 # Paths
 PROJ_ROOT = Path(__file__).resolve().parents[1]
-logger.info(f'PROJ_ROOT path is: {PROJ_ROOT}')
+logger.info(f"PROJ_ROOT path is: {PROJ_ROOT}")
 
-DATA_DIR = PROJ_ROOT / 'data'
-RAW_DATA_DIR = DATA_DIR / 'raw'
-INTERIM_DATA_DIR = DATA_DIR / 'interim'
-PROCESSED_DATA_DIR = DATA_DIR / 'processed'
-EXTERNAL_DATA_DIR = DATA_DIR / 'external'
+DATA_DIR = PROJ_ROOT / "data"
+RAW_DATA_DIR = DATA_DIR / "raw"
+INTERIM_DATA_DIR = DATA_DIR / "interim"
+PROCESSED_DATA_DIR = DATA_DIR / "processed"
+EXTERNAL_DATA_DIR = DATA_DIR / "external"
 
-TRACKING_URI = PROJ_ROOT / 'mlruns'
+TRACKING_URI = PROJ_ROOT / "mlruns"
 
-SYNTHETIC_DATA_DIR = RAW_DATA_DIR / 'synthetic'
-SYNTHETIC_TRAIN_DATA_DIR = SYNTHETIC_DATA_DIR / 'train'
-SYNTHETIC_TEST_DATA_DIR = SYNTHETIC_DATA_DIR / 'test'
-SYNTHETIC_LABELS_NAME = 'shape_flags.parquet'
+SYNTHETIC_DATA_DIR = RAW_DATA_DIR / "synthetic"
+SYNTHETIC_TRAIN_DATA_DIR = SYNTHETIC_DATA_DIR / "train"
+SYNTHETIC_TEST_DATA_DIR = SYNTHETIC_DATA_DIR / "test"
+SYNTHETIC_LABELS_NAME = "shape_flags.parquet"
 SYNTHETIC_TRAIN_LABELS_PATH = SYNTHETIC_TRAIN_DATA_DIR / SYNTHETIC_LABELS_NAME
 SYNTHETIC_TEST_LABELS_PATH = SYNTHETIC_TEST_DATA_DIR / SYNTHETIC_LABELS_NAME
 
-SEGMENTED_DATA_DIR = EXTERNAL_DATA_DIR / 'opg111.v1i.coco-segmentation'
-SEGMENTED_TRAIN_DATA_DIR = SEGMENTED_DATA_DIR / 'train'
-SEGMENTED_VAL_DATA_DIR = SEGMENTED_DATA_DIR / 'valid'
-SEGMENTED_TEST_DATA_DIR = SEGMENTED_DATA_DIR / 'test'
-SEGMENTED_ANNOTATIONS_NAME = '_annotations.coco.json'
+SEGMENTED_DATA_DIR = EXTERNAL_DATA_DIR / "opg111.v1i.coco-segmentation"
+SEGMENTED_TRAIN_DATA_DIR = SEGMENTED_DATA_DIR / "train"
+SEGMENTED_VAL_DATA_DIR = SEGMENTED_DATA_DIR / "valid"
+SEGMENTED_TEST_DATA_DIR = SEGMENTED_DATA_DIR / "test"
+SEGMENTED_ANNOTATIONS_NAME = "_annotations.coco.json"
 SEGMENTED_TRAIN_ANNOTATIONS_PATH = SEGMENTED_TRAIN_DATA_DIR / SEGMENTED_ANNOTATIONS_NAME
 SEGMENTED_VAL_ANNOTATIONS_PATH = SEGMENTED_VAL_DATA_DIR / SEGMENTED_ANNOTATIONS_NAME
 SEGMENTED_TEST_ANNOTATIONS_PATH = SEGMENTED_TEST_DATA_DIR / SEGMENTED_ANNOTATIONS_NAME
 
-ULTRASOUND_DATA_DIR = EXTERNAL_DATA_DIR / 'ultrasound'
+ULTRASOUND_DATA_DIR = EXTERNAL_DATA_DIR / "ultrasound"
 
-BRATS_DATA_DIR = EXTERNAL_DATA_DIR / 'brats'
-BRATS_TRAIN_DATA_DIR = BRATS_DATA_DIR / 'BraTS2020_TrainingData' / 'MICCAI_BraTS2020_TrainingData'
-BRATS_TRAIN_SURVIVAL_INFO_PATH = BRATS_TRAIN_DATA_DIR / 'survival_info.csv'
+BRATS_DATA_DIR = EXTERNAL_DATA_DIR / "brats"
+BRATS_TRAIN_DATA_DIR = BRATS_DATA_DIR / "BraTS2020_TrainingData" / "MICCAI_BraTS2020_TrainingData"
+BRATS_TRAIN_SURVIVAL_INFO_PATH = BRATS_TRAIN_DATA_DIR / "survival_info.csv"
 
-MODELS_DIR = PROJ_ROOT / 'models'
+MODELS_DIR = PROJ_ROOT / "models"
 
-REPORTS_DIR = PROJ_ROOT / 'reports'
-FIGURES_DIR = REPORTS_DIR / 'figures'
+REPORTS_DIR = PROJ_ROOT / "reports"
+FIGURES_DIR = REPORTS_DIR / "figures"
 
 RANDOM_STATE = 214
 
-BASE_MODEL_NAME = 'facebook/dino-vits8'
+BASE_MODEL_NAME = "facebook/dino-vits8"
 
 IMAGE_SIZE = 224
 BATCH_SIZE = 8
@@ -72,47 +72,47 @@ N_SPLITS = 5
 TEST_FRAC = 0.2
 
 # BRATS labeling / slicing (made explicit instead of buried magic numbers)
-BRATS_SURVIVAL_THRESHOLD_DAYS = 730   # 2-year survival binarization threshold
-BRATS_SURVIVAL_SLICE = 80             # axial slice index used for the survival task
+BRATS_SURVIVAL_THRESHOLD_DAYS = 730  # 2-year survival binarization threshold
+BRATS_SURVIVAL_SLICE = 80  # axial slice index used for the survival task
 BRATS_SLICE_INDICES = (111, 120, 131)  # slices used for the tumor-presence task
-BRATS_TUMOR_AREA_THRESHOLD = 0.005    # min tumor area share for a positive slice label
+BRATS_TUMOR_AREA_THRESHOLD = 0.005  # min tumor area share for a positive slice label
 
-OOD_CATEGORIES = ['RESTORATION', 'CROWN', 'CROWN AND BRIDGE', 'IMPLANT']
+OOD_CATEGORIES = ["RESTORATION", "CROWN", "CROWN AND BRIDGE", "IMPLANT"]
 ALTERNATIVE_OOD_CATEGORIES = [
-    'ROOT CANAL TREATED TOOTH',
-    'ROOT STUMP',
-    'SHORTENED RCT',
-    'ROOT CANAL BEYOND APEX',
-    'ERUPTING TOOTH',
-    'BROKEN TOOTH'
+    "ROOT CANAL TREATED TOOTH",
+    "ROOT STUMP",
+    "SHORTENED RCT",
+    "ROOT CANAL BEYOND APEX",
+    "ERUPTING TOOTH",
+    "BROKEN TOOTH",
 ]
-TARGET_CATEGORIES = ['CARIES']
+TARGET_CATEGORIES = ["CARIES"]
 
 ULTRASOUND_LABELS_MAPPING = {
-    'НОРМА': 0,
-    'ПАТОЛОГИЯ': 1,
+    "НОРМА": 0,
+    "ПАТОЛОГИЯ": 1,
 }
 
 # Trained-run identifiers, resolved from the environment (see .env.example).
 # Only the run ids actually consumed by utils.get_model_run_id are declared here.
-RUN_ID_MIM_REAL_L1 = os.getenv('RUN_ID_MIM_REAL_L1')
-RUN_ID_MIM_REAL_MSE = os.getenv('RUN_ID_MIM_REAL_MSE')
-RUN_ID_MIM_REAL_SMOOTH_L1 = os.getenv('RUN_ID_MIM_REAL_SMOOTH_L1')
-RUN_ID_MIM_REAL_HUBER = os.getenv('RUN_ID_MIM_REAL_HUBER')
-RUN_ID_MIM_REAL_TUKEY = os.getenv('RUN_ID_MIM_REAL_TUKEY')
-RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED = os.getenv('RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED')
+RUN_ID_MIM_REAL_L1 = os.getenv("RUN_ID_MIM_REAL_L1")
+RUN_ID_MIM_REAL_MSE = os.getenv("RUN_ID_MIM_REAL_MSE")
+RUN_ID_MIM_REAL_SMOOTH_L1 = os.getenv("RUN_ID_MIM_REAL_SMOOTH_L1")
+RUN_ID_MIM_REAL_HUBER = os.getenv("RUN_ID_MIM_REAL_HUBER")
+RUN_ID_MIM_REAL_TUKEY = os.getenv("RUN_ID_MIM_REAL_TUKEY")
+RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED = os.getenv("RUN_ID_MIM_REAL_SMOOTH_L1_FILTERED")
 
-RUN_ID_CLASS_REAL_MSE = os.getenv('RUN_ID_CLASS_REAL_MSE')
+RUN_ID_CLASS_REAL_MSE = os.getenv("RUN_ID_CLASS_REAL_MSE")
 
-RUN_ID_REAL_MULTITASK = os.getenv('RUN_ID_REAL_MULTITASK')
+RUN_ID_REAL_MULTITASK = os.getenv("RUN_ID_REAL_MULTITASK")
 
-RUN_ID_MIM_ULTRASOUND_MSE = os.getenv('RUN_ID_MIM_ULTRASOUND_MSE')
+RUN_ID_MIM_ULTRASOUND_MSE = os.getenv("RUN_ID_MIM_ULTRASOUND_MSE")
 
-RUN_ID_CLASS_ULTRASOUND = os.getenv('RUN_ID_CLASS_ULTRASOUND')
+RUN_ID_CLASS_ULTRASOUND = os.getenv("RUN_ID_CLASS_ULTRASOUND")
 
-RUN_ID_ULTRASOUND_MULTITASK = os.getenv('RUN_ID_ULTRASOUND_MULTITASK')
+RUN_ID_ULTRASOUND_MULTITASK = os.getenv("RUN_ID_ULTRASOUND_MULTITASK")
 
-RUN_ID_BRATS_MIM_MSE = os.getenv('RUN_ID_BRATS_MIM_MSE')
+RUN_ID_BRATS_MIM_MSE = os.getenv("RUN_ID_BRATS_MIM_MSE")
 
 # If tqdm is installed, configure loguru with tqdm.write
 # https://github.com/Delgan/loguru/issues/135
@@ -120,6 +120,6 @@ try:
     from tqdm import tqdm
 
     logger.remove(0)
-    logger.add(lambda msg: tqdm.write(msg, end=''), colorize=True)
+    logger.add(lambda msg: tqdm.write(msg, end=""), colorize=True)
 except ModuleNotFoundError:
     pass
