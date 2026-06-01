@@ -51,5 +51,5 @@ Group findings by severity: **critical** = masking no-op / loss not masked-only 
 sigmoid / lost normalization (silent objective change); **high** = predict-mirror drift,
 MMD on raw pixels, reshape break; **medium** = FOV/augmentation nit, dtype/reduction.
 For each: file + symbol, the silent failure it causes, and the minimal fix. If you can prove
-a masking/shape issue with a short torch snippet via Bash (`python -c ...`), do it and
+a masking/shape issue with a short torch snippet via Bash (`poetry run python -c ...`), do it and
 include the output. Do not edit files.

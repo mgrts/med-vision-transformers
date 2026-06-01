@@ -5,7 +5,7 @@ description: Launch a med-vision-transformers training run (src/modeling/train.p
 
 # Run an experiment (med-vision-transformers)
 
-Build the right `python -m src.modeling.train` command, confirm it, run it, and report the
+Build the right `poetry run python -m src.modeling.train` command, confirm it, run it, and report the
 MLflow run id + metrics so the run is reproducible and can be evaluated / referenced from
 `.env` (`RUN_ID_*`).
 
@@ -24,7 +24,7 @@ Read `src/modeling/train.py:main` for the current option names/defaults and `src
 for `N_SPLITS`, `NUM_EPOCHS`, `LR`, etc. Confirm the data the run needs exists:
 
 ```bash
-python -m src.modeling.train --help
+poetry run python -m src.modeling.train --help
 ls data/ models/ 2>/dev/null
 ```
 
@@ -38,7 +38,7 @@ will fail without data. For a finetune (`--pre-trained-model-run-id`), confirm
 Show the exact command, e.g.:
 
 ```bash
-python -m src.modeling.train \
+poetry run python -m src.modeling.train \
   --training-task multi-task --data-type coco \
   --regression-loss-type MSE --classification-loss-type BCEWithLogits \
   --num-splits 5 --num-epochs 20
@@ -66,9 +66,9 @@ Report:
 - the **MLflow run id** and `models/<run_id>/` artifacts;
 - the cross-validation summary (`avg_*` + the `*_lower`/`*_upper` t-CI) and, for
   classification/multi-task, the `test_*` held-out metrics (PR-AUC is the headline);
-- to inspect: `mlflow ui --backend-store-uri mlruns` (or `python -m src.modeling.eval.eval_run --parent-run-id <id> --metric pr_auc`);
+- to inspect: `mlflow ui --backend-store-uri mlruns` (or `poetry run python -m src.modeling.eval.eval_run --parent-run-id <id> --metric pr_auc`);
 - to evaluate on the held-out test set:
-  `python -m src.modeling.eval.eval_clf --parent-run-id <id> --training-task <task>`;
+  `poetry run python -m src.modeling.eval.eval_clf --parent-run-id <id> --training-task <task>`;
 - if this run is a reusable artifact (e.g. an MIM pretrain to finetune from, or a model for
   `predict.py`), the matching `RUN_ID_*` line to add to `.env` (see `.env.example` /
   `utils.get_model_run_id`).

@@ -1,6 +1,6 @@
 ---
 name: model-contract-reviewer
-description: Guards the model/head tensor-shape contracts, the single-logit binary classification convention, constructor signatures across train/predict/eval, and dependency-import hygiene. Use when a change touches src/modeling/models.py, the model factory / head construction in train.py / predict.py / eval_clf.py, the label dtype/shape in data_processing.py, or requirements.txt / top-level imports.
+description: Guards the model/head tensor-shape contracts, the single-logit binary classification convention, constructor signatures across train/predict/eval, and dependency-import hygiene. Use when a change touches src/modeling/models.py, the model factory / head construction in train.py / predict.py / eval_clf.py, the label dtype/shape in data_processing.py, or pyproject.toml dependencies / top-level imports.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -28,7 +28,7 @@ Read the actual current files.
      and `eval_clf.py` must pass `num_classes=1` (a 2-class head won't load current
      checkpoints).
    - `MultiLabelClassificationTransformer(base_model, num_classes, dropout_rate)`.
-   Smoke any signature change by constructing the class (`python -c ...`) when feasible.
+   Smoke any signature change by constructing the class (`poetry run python -c ...`) when feasible.
 3. **Shape/reshape integrity.** Heads keep `x.last_hidden_state[:, 1:, :]` then
    `view(-1, num_patches_per_dim, num_patches_per_dim, embed_dim).permute(0,3,1,2)`;
    `num_patches_per_dim = image_size // patch_size` is exact (224 // 8 = 28). `MIMHead`
@@ -36,10 +36,12 @@ Read the actual current files.
    `create_mask`'s upsampled mask and the `images` tensor.
 4. **torch.load.** Every checkpoint load passes `map_location=DEVICE`.
 5. **Dependency / import hygiene.** Every third-party top-level import across `src/` is
-   declared in `requirements.txt` — verify with a grep of imports vs the file. The set must
-   include `torch, torchvision, transformers, timm, mlflow, nibabel, pillow, numpy, pandas,
-   pyarrow, scikit-learn, scipy, matplotlib, opencv-python, pycocotools`. `scipy` is required
-   by `confidence_interval` (also a sklearn dep). Flag a new import that is not declared.
+   declared in `pyproject.toml` `[tool.poetry.dependencies]` (dev tooling in the
+   `[tool.poetry.group.dev.dependencies]` group) — verify with a grep of imports vs the file.
+   The runtime set must include `torch, torchvision, transformers, timm, mlflow, nibabel,
+   pillow, numpy, pandas, pyarrow, scikit-learn, scipy, matplotlib, opencv-python,
+   pycocotools`. `scipy` is required by `confidence_interval` (also a sklearn dep). There is
+   no `requirements.txt`. Flag a new import that is not declared.
 6. **Single source of truth (no dead duplicates).** `compute_mmd` only in `utils.py`;
    `get_masked_images`/`create_mask`/`resolve_concrete` only in `data_processing.py`;
    `confidence_interval`/`compute_binary_metrics`/`collect_predictions` defined once and
@@ -55,5 +57,5 @@ Group findings by severity: **critical** = head/label shape or dtype mismatch, w
 dependency (ImportError on clean install); **high** = reshape/`map_location` regression,
 re-introduced duplicate helper; **medium** = naming/docstring/type-hint. For each: file +
 symbol, the concrete runtime failure or wrong result, and the minimal fix. Prove a
-signature/shape issue with a short `python -c` snippet via Bash when feasible. Do not edit
+signature/shape issue with a short `poetry run python -c` snippet via Bash when feasible. Do not edit
 files.

@@ -26,16 +26,15 @@ Vision transformers for medical data research
 │                         the creator's initials, and a short `-` delimited description, e.g.
 │                         `1.0-jqp-initial-data-exploration`.
 │
-├── pyproject.toml     <- Project configuration file with package metadata for
-│                         src and configuration for tools like black
-│
 ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
 │
 ├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
 │   └── figures        <- Generated graphics and figures to be used in reporting
 │
-├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-│                         generated with `pip freeze > requirements.txt`
+├── pyproject.toml     <- Poetry project metadata, dependencies
+│                         ([tool.poetry.dependencies] + dev group) and tool config
+├── poetry.lock        <- Pinned, resolved dependency versions (committed)
+├── poetry.toml        <- Local Poetry config (in-project .venv)
 │
 ├── setup.cfg          <- Configuration file for flake8
 │
@@ -67,10 +66,13 @@ Vision transformers for medical data research
 ## Set up project
 
 ```bash
-pip install -r requirements.txt
-pre-commit install
-pre-commit run --all-files
+poetry install            # runtime + dev deps into an in-project .venv
+poetry run pre-commit install
+poetry run pre-commit run --all-files
 ```
+
+Run commands inside the environment with `poetry run ...` (e.g. `poetry run python -m
+src.modeling.train --help`) or `poetry shell`.
 
 Copy `.env.example` to `.env` and populate the `RUN_ID_*` identifiers with the MLflow run
 ids of your trained runs (used by `src/modeling/predict.py`). The `models/` and `mlruns/`

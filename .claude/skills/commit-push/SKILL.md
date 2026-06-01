@@ -1,6 +1,6 @@
 ---
 name: commit-push
-description: Run code-review, byte-compile src/, and the pre-commit / make lint hooks; update docs if drifted; write a Conventional Commits message; commit and push to main on GitHub (origin mgrts/med-vision-transformers); optionally bump the [project] version (flit) and push a release tag. Stops at every gate (failed review, compile error, failed lint/hooks, conflicting rebase) and requires explicit confirmation before committing and pushing. NEVER adds Claude/AI commit attribution.
+description: Run code-review, byte-compile src/, and the pre-commit / make lint hooks; update docs if drifted; write a Conventional Commits message; commit and push to main on GitHub (origin mgrts/med-vision-transformers); optionally bump the [tool.poetry] version (Poetry) and push a release tag. Stops at every gate (failed review, compile error, failed lint/hooks, conflicting rebase) and requires explicit confirmation before committing and pushing. NEVER adds Claude/AI commit attribution.
 ---
 
 # Commit & push for med-vision-transformers
@@ -57,7 +57,7 @@ Invoke the `code-review` skill on the pending diff.
 ### Step 3: Compile check
 
 ```bash
-python -m compileall -q src
+poetry run python -m compileall -q src
 ```
 
 There is no test suite, so this is the baseline correctness gate. If it fails, show the
@@ -72,9 +72,9 @@ make lint            # flake8 + isort --check + black --check (line 99)
 ```
 
 If it fails: `make format` (isort + black) auto-fixes formatting — run it, then re-run
-`make lint`. If `pre-commit` is installed and configured, `pre-commit run --all-files` may
-also be run; never bypass with `--no-verify`. If `check-added-large-files` or
-`detect-private-key` trips, do NOT force it through — surface the offending file.
+`make lint`. If `pre-commit` is installed and configured, `poetry run pre-commit run
+--all-files` may also be run; never bypass with `--no-verify`. If `check-added-large-files`
+or `detect-private-key` trips, do NOT force it through — surface the offending file.
 
 ### Step 5: Update documentation
 
@@ -92,8 +92,9 @@ If nothing drifted, skip this step. Do not rewrite docs that are already correct
 
 By default, do NOT bump the version on every commit. If a release is requested:
 
-- Patch-bump `version` under **`[project]`** in `pyproject.toml` (flit backend), e.g.
-  `0.0.1 → 0.0.2`. Never add a poetry table.
+- Patch-bump `version` under **`[tool.poetry]`** in `pyproject.toml` (poetry-core backend),
+  e.g. `0.0.1 → 0.0.2`. Never add a PEP 621 `[project]` table. (`poetry version patch` does
+  this.)
 - Form the tag `v<version>` — created in Step 10 after the push.
 
 ### Step 7: Generate the Conventional Commits message

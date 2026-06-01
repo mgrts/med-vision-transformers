@@ -11,11 +11,10 @@ PYTHON_INTERPRETER = python
 #################################################################################
 
 
-## Install Python Dependencies
+## Install Python Dependencies (runtime + dev) into the Poetry-managed venv
 .PHONY: requirements
 requirements:
-	$(PYTHON_INTERPRETER) -m pip install -U pip
-	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
+	poetry install
 
 
 
@@ -26,26 +25,27 @@ clean:
 	find . -type f -name "*.py[co]" -delete
 	find . -type d -name "__pycache__" -delete
 
-## Lint using flake8 and black (use `make format` to do formatting)
+## Lint using flake8, isort, and black (use `make format` to do formatting)
 .PHONY: lint
 lint:
-	flake8 src
-	isort --check --diff --profile black src
-	black --check --config pyproject.toml src
+	poetry run flake8 src
+	poetry run isort --check --diff --profile black src
+	poetry run black --check --config pyproject.toml src
 
-## Format source code with black
+## Format source code with isort + black
 .PHONY: format
 format:
-	black --config pyproject.toml src
+	poetry run isort --profile black src
+	poetry run black --config pyproject.toml src
 
 
 
 
-## Set up python interpreter environment
+## Set up the Poetry-managed (in-project .venv) environment
 .PHONY: create_environment
 create_environment:
-	@bash -c "if [ ! -z `which virtualenvwrapper.sh` ]; then source `which virtualenvwrapper.sh`; mkvirtualenv $(PROJECT_NAME) --python=$(PYTHON_INTERPRETER); else mkvirtualenv.bat $(PROJECT_NAME) --python=$(PYTHON_INTERPRETER); fi"
-	@echo ">>> New virtualenv created. Activate with:\nworkon $(PROJECT_NAME)"
+	poetry env use $(PYTHON_VERSION)
+	@echo ">>> Poetry env ready. Install deps with 'make requirements'; run with 'poetry run ...'."
 
 
 
@@ -58,7 +58,7 @@ create_environment:
 ## Make Dataset
 .PHONY: data
 data: requirements
-	$(PYTHON_INTERPRETER) src/dataset.py
+	poetry run python src/dataset.py
 
 
 #################################################################################

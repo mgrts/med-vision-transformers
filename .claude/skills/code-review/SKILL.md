@@ -48,7 +48,7 @@ When the diff touches a fragile subsystem, dispatch the matching subagent (Agent
 - Touches `build_datasets` / `holdout_split` / `kfold_splits` / `train_model` / `main` /
   `eval/*.py` / dataset labels & groups → **`data-split-leakage-auditor`**.
 - Touches `models.py` heads / the model factory / head construction in
-  `predict.py` / `eval_clf.py` / label dtype-shape / `requirements.txt` / top-level imports
+  `predict.py` / `eval_clf.py` / label dtype-shape / `pyproject.toml` deps / top-level imports
   → **`model-contract-reviewer`**.
 
 For a small diff that clearly matches none, do the checks inline.
@@ -107,7 +107,8 @@ For a small diff that clearly matches none, do the checks inline.
 
 ### Step 10: HIGH — Dependency & duplicate hygiene
 
-- Every third-party import is declared in `requirements.txt` (grep imports vs the file).
+- Every third-party import is declared in `pyproject.toml` `[tool.poetry.dependencies]` (dev
+  tooling in the `dev` group); grep imports vs the file. There is no `requirements.txt`.
 - No re-introduced duplicate helper (`compute_mmd` only in `utils.py`; masking only in
   `data_processing.py`; `confidence_interval`/`compute_binary_metrics`/`collect_predictions`
   single-definition).
@@ -118,7 +119,8 @@ For a small diff that clearly matches none, do the checks inline.
 - black + isort at **99** (`pyproject.toml [tool.black]`, isort `--profile black`);
   `make format` then `make lint` leave no diff. (Note the known tooling line-length
   inconsistency — flake8 131 in pre-commit vs 99 elsewhere; flag, don't silently "fix".)
-- Build backend is **flit** (`[project]` table); no poetry table.
+- Dependency/build management is **Poetry** (`[tool.poetry]` + `poetry.lock`, `poetry-core`
+  backend); no PEP 621 `[project]` table, no `requirements.txt`.
 - **No secrets / no PII** in the diff. Nothing staged under `data/`, `models/`, `mlruns/`,
   `reports/`, `notebooks/`, nor any `*.nii/*.npy/*.pt/*.pth/*.ckpt/*.pkl/*.db/*.ipynb`/
   `.env`; no `git add -f` past `.gitignore`; no file `> 10 MB`.
@@ -130,8 +132,8 @@ For a small diff that clearly matches none, do the checks inline.
 Run both and report exit status:
 
 ```bash
-python -m compileall -q src        # there is no test suite; this catches syntax errors
-make lint                          # flake8 + isort --check + black --check (line 99)
+poetry run python -m compileall -q src   # no test suite; this catches syntax errors
+make lint                                 # poetry run flake8 + isort --check + black --check (99)
 ```
 
 A failing compile is a critical finding; lint failures are medium (`make format` fixes most).
@@ -146,7 +148,7 @@ Group findings by severity:
   dependency; broken compile.
 - **High** — group-leakage (slices), best-epoch/best-fold regression, bad model constructor
   signature, dataset-labeling regression, duplicate-helper drift, `map_location` drop.
-- **Medium** — style/hygiene/flit-table, docs drift, lint failure.
+- **Medium** — style/hygiene/poetry-table, docs drift, lint failure.
 - **Low** — comment / naming / docstring / type-hint polish.
 
 For each finding: file path, the symbol or line, and a concrete suggestion. Do not make

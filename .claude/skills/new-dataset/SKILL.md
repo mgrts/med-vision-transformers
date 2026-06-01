@@ -62,10 +62,11 @@ should be evaluable/visualizable there).
 - Run the `/verify` skill (its data-free smoke test constructs models/losses; add a tiny
   check that the new dataset yields a `[1]` float label and, if grouped, a `groups` list).
 - If a small sample of the data is available, run
-  `DEVICE=cpu python -m src.modeling.train --data-type <key> --num-splits 2 --num-epochs 1`.
+  `DEVICE=cpu poetry run python -m src.modeling.train --data-type <key> --num-splits 2 --num-epochs 1`.
 - Add the dataset to the `CLAUDE.md` package map and "How to run"; if you added a labeling
   rule or grouping, note it under the relevant invariant.
-- Add any new third-party dependency to `requirements.txt`.
+- Add any new third-party dependency with `poetry add <pkg>` (or `poetry add --group dev
+  <pkg>` for tooling) so it lands in `[tool.poetry.dependencies]` and `poetry.lock`.
 
 Do not commit data or weights (`data/`, `models/` are gitignored and hook-blocked). Hand off
 to `/commit-push` when ready.

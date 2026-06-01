@@ -2,9 +2,9 @@
 """PostToolUse hook (Edit|Write|MultiEdit): run isort + black on an edited .py file.
 
 Keeps the working tree consistent with `make format` (isort --profile black + black,
-line-length 99, per pyproject.toml [tool.black]) so diffs stay clean. There is no
-.venv in this repo, so the tools are resolved from PATH (where `make format` finds
-them). Always exits 0 — formatting is best-effort and never blocks the edit.
+line-length 99, per pyproject.toml [tool.black]) so diffs stay clean. Tools are resolved
+from the in-project Poetry venv (.venv/bin) when present, falling back to PATH otherwise.
+Always exits 0 — formatting is best-effort and never blocks the edit.
 """
 
 import json

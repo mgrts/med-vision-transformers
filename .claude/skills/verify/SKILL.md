@@ -20,7 +20,7 @@ data or GPU beyond the installed packages).
 ### Step 1: Compile
 
 ```bash
-python -m compileall -q src && echo "compile: ok"
+poetry run python -m compileall -q src && echo "compile: ok"
 ```
 
 ### Step 2: Data-free synthetic smoke test (default)
@@ -31,7 +31,7 @@ for each task, plus the masking and metric helpers. Write a short throwaway scri
 it, e.g.:
 
 ```bash
-DEVICE=cpu python - <<'PY'
+DEVICE=cpu poetry run python - <<'PY'
 import torch
 from transformers import AutoModel
 from src.config import BASE_MODEL_NAME, IMAGE_SIZE
@@ -73,7 +73,7 @@ PY
 Also smoke the split/metric helpers without data:
 
 ```bash
-python - <<'PY'
+poetry run python - <<'PY'
 import numpy as np
 from src.modeling.train import kfold_splits, holdout_split, compute_binary_metrics, select_threshold
 from src.modeling.utils import confidence_interval
@@ -96,7 +96,7 @@ If the dataset directory exists, run a tiny real training to exercise the datase
 CV path too (keep it fast: 1 epoch, 2 folds):
 
 ```bash
-DEVICE=cpu python -m src.modeling.train --training-task multi-task --data-type coco \
+DEVICE=cpu poetry run python -m src.modeling.train --training-task multi-task --data-type coco \
   --num-splits 2 --num-epochs 1 --batch-size 4
 ```
 
