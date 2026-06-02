@@ -66,7 +66,7 @@ should be evaluable/visualizable there).
 - Add the dataset to the `CLAUDE.md` package map and "How to run"; if you added a labeling
   rule or grouping, note it under the relevant invariant.
 - Add any new third-party dependency with `poetry add <pkg>` (or `poetry add --group dev
-  <pkg>` for tooling) so it lands in `[tool.poetry.dependencies]` and `poetry.lock`.
+  <pkg>` for tooling) so it lands in `[project.dependencies]` and `poetry.lock`.
 
 Do not commit data or weights (`data/`, `models/` are gitignored and hook-blocked). Hand off
 to `/commit-push` when ready.

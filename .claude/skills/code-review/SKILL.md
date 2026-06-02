@@ -107,8 +107,8 @@ For a small diff that clearly matches none, do the checks inline.
 
 ### Step 10: HIGH — Dependency & duplicate hygiene
 
-- Every third-party import is declared in `pyproject.toml` `[tool.poetry.dependencies]` (dev
-  tooling in the `dev` group); grep imports vs the file. There is no `requirements.txt`.
+- Every third-party import is declared in `pyproject.toml` `[project.dependencies]` (PEP 621;
+  dev tooling in the `[tool.poetry] dev` group); grep imports vs the file. No `requirements.txt`.
 - No re-introduced duplicate helper (`compute_mmd` only in `utils.py`; masking only in
   `data_processing.py`; `confidence_interval`/`compute_binary_metrics`/`collect_predictions`
   single-definition).
@@ -119,8 +119,9 @@ For a small diff that clearly matches none, do the checks inline.
 - black + isort at **99** (`pyproject.toml [tool.black]`, isort `--profile black`);
   `make format` then `make lint` leave no diff. (Note the known tooling line-length
   inconsistency — flake8 131 in pre-commit vs 99 elsewhere; flag, don't silently "fix".)
-- Dependency/build management is **Poetry** (`[tool.poetry]` + `poetry.lock`, `poetry-core`
-  backend); no PEP 621 `[project]` table, no `requirements.txt`.
+- Dependency/build management is **Poetry** (PEP 621 `[project]` for metadata + runtime deps,
+  `[tool.poetry]` for the dev group + `packages`, `poetry.lock`, `poetry-core` >= 2.0 backend);
+  no `requirements.txt`.
 - **No secrets / no PII** in the diff. Nothing staged under `data/`, `models/`, `mlruns/`,
   `reports/`, `notebooks/`, nor any `*.nii/*.npy/*.pt/*.pth/*.ckpt/*.pkl/*.db/*.ipynb`/
   `.env`; no `git add -f` past `.gitignore`; no file `> 10 MB`.

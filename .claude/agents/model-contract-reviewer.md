@@ -36,7 +36,7 @@ Read the actual current files.
    `create_mask`'s upsampled mask and the `images` tensor.
 4. **torch.load.** Every checkpoint load passes `map_location=DEVICE`.
 5. **Dependency / import hygiene.** Every third-party top-level import across `src/` is
-   declared in `pyproject.toml` `[tool.poetry.dependencies]` (dev tooling in the
+   declared in `pyproject.toml` `[project.dependencies]` (PEP 621; dev tooling in the
    `[tool.poetry.group.dev.dependencies]` group) — verify with a grep of imports vs the file.
    The runtime set must include `torch, torchvision, transformers, timm, mlflow, nibabel,
    pillow, numpy, pandas, pyarrow, scikit-learn, scipy, matplotlib, opencv-python,

@@ -32,7 +32,7 @@ Vision transformers for medical data research
 │   └── figures        <- Generated graphics and figures to be used in reporting
 │
 ├── pyproject.toml     <- Poetry project metadata, dependencies
-│                         ([tool.poetry.dependencies] + dev group) and tool config
+│                         ([project.dependencies] + [tool.poetry] dev group) and tool config
 ├── poetry.lock        <- Pinned, resolved dependency versions (committed)
 ├── poetry.toml        <- Local Poetry config (in-project .venv)
 │

@@ -136,7 +136,7 @@ a 1-epoch/2-fold training instead).
     `filter_ood` errors if it would remove every training sample. Don't claim MMD/filtering
     improves robustness without an OOD evaluation.
 11. **Dependency / import hygiene.** Every third-party import must be declared in
-    `pyproject.toml` under `[tool.poetry.dependencies]` (runtime: `torch`, `torchvision`,
+    `pyproject.toml` under `[project.dependencies]` (PEP 621 runtime: `torch`, `torchvision`,
     `transformers`, `timm`, `mlflow`, `nibabel`, `pillow`, `numpy`, `pandas`, `pyarrow`,
     `scikit-learn`, `scipy`, `matplotlib`, `opencv-python`, `pycocotools`, `loguru`, `tqdm`,
     `typer`, `python-dotenv`) — dev tooling (`black`, `flake8`, `isort`, `pre-commit`,
@@ -158,10 +158,13 @@ a 1-epoch/2-fold training instead).
   use **99**, but `.pre-commit-config.yaml`'s flake8 uses **131**. `setup.cfg` flake8 also
   ignores `E501`, so line length is effectively unenforced by lint. Keep black at 99; if you
   unify, align all three. (Flagging, not auto-fixing.)
-- Dependency & build management is **Poetry** (`poetry-core` backend; deps under
-  `[tool.poetry.dependencies]` + the `dev` group; in-project `.venv` via `poetry.toml`;
-  resolved pins in `poetry.lock`). Do NOT add a PEP 621 `[project]` table. Bump
-  `[tool.poetry].version` for a release. Install with `poetry install`, run via `poetry run`.
+- Dependency & build management is **Poetry** (`poetry-core` >= 2.0 backend). Static metadata
+  and runtime deps live in the **PEP 621 `[project]`** table (`[project.dependencies]`); only
+  Poetry-specific config stays under `[tool.poetry]` (`packages = [{include = "src"}]` and the
+  `[tool.poetry.group.dev.dependencies]` dev group). In-project `.venv` via `poetry.toml`;
+  resolved pins in `poetry.lock`. Bump `[project].version` for a release (`poetry version
+  patch`). Install with `poetry install`, run via `poetry run`. (Re-run `poetry lock` after
+  editing dependencies so the lock content-hash stays consistent.)
 - Datasets are not in the repo; `models/`, `mlruns/`, `data/`, `reports/`, `notebooks/` are
   gitignored. Existing checkpoints are 2-class / sigmoid-era and will NOT load into the
   current single-logit / no-sigmoid models — retrain.

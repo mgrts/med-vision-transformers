@@ -1,6 +1,6 @@
 ---
 name: commit-push
-description: Run code-review, byte-compile src/, and the pre-commit / make lint hooks; update docs if drifted; write a Conventional Commits message; commit and push to main on GitHub (origin mgrts/med-vision-transformers); optionally bump the [tool.poetry] version (Poetry) and push a release tag. Stops at every gate (failed review, compile error, failed lint/hooks, conflicting rebase) and requires explicit confirmation before committing and pushing. NEVER adds Claude/AI commit attribution.
+description: Run code-review, byte-compile src/, and the pre-commit / make lint hooks; update docs if drifted; write a Conventional Commits message; commit and push to main on GitHub (origin mgrts/med-vision-transformers); optionally bump the [project] version (Poetry/PEP 621) and push a release tag. Stops at every gate (failed review, compile error, failed lint/hooks, conflicting rebase) and requires explicit confirmation before committing and pushing. NEVER adds Claude/AI commit attribution.
 ---
 
 # Commit & push for med-vision-transformers
@@ -92,9 +92,9 @@ If nothing drifted, skip this step. Do not rewrite docs that are already correct
 
 By default, do NOT bump the version on every commit. If a release is requested:
 
-- Patch-bump `version` under **`[tool.poetry]`** in `pyproject.toml` (poetry-core backend),
-  e.g. `0.0.1 → 0.0.2`. Never add a PEP 621 `[project]` table. (`poetry version patch` does
-  this.)
+- Patch-bump `version` under **`[project]`** in `pyproject.toml` (PEP 621; poetry-core >= 2.0
+  backend), e.g. `0.0.1 → 0.0.2` — run `poetry version patch`. Keep static metadata + runtime
+  deps in `[project]`; only the dev group + `packages` stay under `[tool.poetry]`.
 - Form the tag `v<version>` — created in Step 10 after the push.
 
 ### Step 7: Generate the Conventional Commits message
